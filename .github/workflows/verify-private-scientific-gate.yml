@@ -1,0 +1,84 @@
+name: Verify private scientific release gate
+
+on:
+  push:
+    branches: [feat/scientific-model-release-20261114]
+
+permissions:
+  contents: read
+
+jobs:
+  verify-fail-closed:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    env:
+      ATHLYS_SOURCE_SHA: b85983b6dc68ddf3835890d47aea337c5d27b533
+    steps:
+      - name: Checkout public verification harness
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Checkout immutable private candidate
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: ${{ env.ATHLYS_SOURCE_SHA }}
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          path: athlys-source
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify private software quality without publishing source output
+        working-directory: athlys-source
+        shell: bash
+        run: |
+          bash "$GITHUB_WORKSPACE/.github/scripts/private-step.sh" <<'PRIVATE_QUALITY'
+          python -m pip install --disable-pip-version-check \
+            numpy==2.3.5 scipy==1.17.0 scikit-learn==1.8.0 joblib==1.5.3
+          PYTHONPATH=ml python - <<'TESTS'
+          import unittest
+          suite = unittest.defaultTestLoader.discover('ml/athlys_intelligence/tests')
+          result = unittest.TextTestRunner(verbosity=1).run(suite)
+          assert result.wasSuccessful() and result.testsRun >= 88 and not result.skipped
+          TESTS
+          node --test tests/athlys-local-intelligence.test.cjs \
+            tests/athlys-neural-intent.test.cjs tests/athlys-parser-measurements.test.cjs
+          PRIVATE_QUALITY
+      - name: Verify ineligible evidence refuses publication
+        working-directory: athlys-source
+        shell: bash
+        run: |
+          bash "$GITHUB_WORKSPACE/.github/scripts/private-step.sh" <<'PRIVATE_VERIFICATION'
+          test "$(git rev-parse HEAD)" = "$ATHLYS_SOURCE_SHA"
+          set +e
+          PYTHONPATH=ml python -m athlys_intelligence.scientific_validation \
+            --manifest scientific-model-manifest.json \
+            --source-sha "$ATHLYS_SOURCE_SHA" --platform android \
+            > "$RUNNER_TEMP/athlys-scientific-verification.json"
+          result=$?
+          set -e
+          test "$result" = 1
+          python - <<'VERIFY'
+          import json, os
+          from pathlib import Path
+          report = json.loads((Path(os.environ['RUNNER_TEMP']) / 'athlys-scientific-verification.json').read_text())
+          assert report['status'] == 'blocked'
+          assert report['scientific_grade'] is False
+          assert report['automatic_promotion'] is False
+          assert report['runtime_source_sha'] == os.environ['ATHLYS_SOURCE_SHA']
+          assert len(report['models']) > 0
+          assert all(model['status'] == 'blocked' for model in report['models'])
+          VERIFY
+          PRIVATE_VERIFICATION
+          echo 'Release refusal verified. This verification does not build, qualify or publish an APK.'
+      - name: Remove ephemeral private checkout and reports
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          rm -rf -- "$GITHUB_WORKSPACE/athlys-source" "$RUNNER_TEMP/athlys-private-logs"
+          rm -f -- "$RUNNER_TEMP/athlys-scientific-verification.json"
