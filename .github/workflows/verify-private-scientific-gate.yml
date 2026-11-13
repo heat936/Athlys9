@@ -21,6 +21,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - name: Checkout immutable private candidate
         uses: actions/checkout@v4
         with:
@@ -30,6 +33,22 @@ jobs:
           path: athlys-source
           persist-credentials: false
           fetch-depth: 1
+      - name: Verify private software quality without publishing source output
+        working-directory: athlys-source
+        shell: bash
+        run: |
+          bash "$GITHUB_WORKSPACE/.github/scripts/private-step.sh" <<'PRIVATE_QUALITY'
+          python -m pip install --disable-pip-version-check \
+            numpy==2.3.5 scipy==1.17.0 scikit-learn==1.8.0 joblib==1.5.3
+          PYTHONPATH=ml python - <<'TESTS'
+          import unittest
+          suite = unittest.defaultTestLoader.discover('ml/athlys_intelligence/tests')
+          result = unittest.TextTestRunner(verbosity=1).run(suite)
+          assert result.wasSuccessful() and result.testsRun >= 88 and not result.skipped
+          TESTS
+          node --test tests/athlys-local-intelligence.test.cjs \
+            tests/athlys-neural-intent.test.cjs tests/athlys-parser-measurements.test.cjs
+          PRIVATE_QUALITY
       - name: Verify ineligible evidence refuses publication
         working-directory: athlys-source
         shell: bash
