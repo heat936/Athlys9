@@ -9,26 +9,6 @@ on:
     paths:
       - ".github/workflows/build-athlys-android.yml"
   workflow_dispatch:
-  pull_request:
-    paths:
-      - "android/**"
-      - "mobile/**"
-      - "native/**"
-      - "web/**"
-      - "package.json"
-      - "capacitor.config.*"
-      - ".github/workflows/android-mobile.yml"
-  push:
-    branches: [main, rebuild/athlys-complete]
-    paths:
-      - "android/**"
-      - "mobile/**"
-      - "native/**"
-      - "web/**"
-      - "package.json"
-      - "package-lock.json"
-      - "capacitor.config.*"
-  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -51,11 +31,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: athlys-source/package-lock.json
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
           cache: gradle
+          cache-dependency-path: athlys-source/android/gradle/wrapper/gradle-wrapper.properties
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
