@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: d9eefbfca280e66036eab929e7f6b1784917b9eb # feat/athlys-interface-refresh-v2: balanced accents
+          ref: 7f97de806c10c0a94f5a8df9631f84678d6d3450 # feat/athlys-interface-refresh-v2: balanced accents
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           path: athlys-source
       - uses: actions/setup-node@v4
