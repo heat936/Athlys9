@@ -24,13 +24,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: 35058a0904b2499dcf3da3f7afbce8032d4f7d55 # immutable experimental device-mesh source
+          ref: e2e992717b758c0d45cf31ae7e9b9427c6931ab3 # immutable experimental device-mesh source
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           path: athlys-source
           persist-credentials: false
       - name: Verify immutable trial source and unchanged scientific boundary
         run: |
-          test "$(git rev-parse HEAD)" = "35058a0904b2499dcf3da3f7afbce8032d4f7d55"
+          test "$(git rev-parse HEAD)" = "e2e992717b758c0d45cf31ae7e9b9427c6931ab3"
           python - <<'PY'
           from pathlib import Path
           import hashlib,json
