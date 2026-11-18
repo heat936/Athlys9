@@ -24,7 +24,7 @@ jobs:
       - name: Install locked or reproducible dependencies
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
-      # Security 034 gate: private, non-API definer, schema privilege isolation, recursive RLS and future grants.
+      # Security 034 gate: seed unsafe ACL defaults before checking private helper, RLS and future grants.
       - name: Verify release plus ephemeral PostgreSQL migration integrity
         run: |
           npm run verify:release
