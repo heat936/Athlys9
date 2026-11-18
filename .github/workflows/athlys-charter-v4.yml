@@ -28,6 +28,7 @@ jobs:
       - name: Install dependencies
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+      # V4.1 includes iconography, accessible feeling scale and compact modal/login corrections.
       - name: Confirm clean-slate charter-only entrypoints
         run: |
           test -s web/athlys-brand-tokens-v4.css
@@ -80,7 +81,16 @@ jobs:
         working-directory: android
         run: |
           chmod +x ./gradlew
-          ./gradlew assembleDebug --no-daemon
+          for attempt in 1 2 3; do
+            echo "Gradle dependency resolution/build attempt $attempt / 3"
+            if ./gradlew assembleDebug --no-daemon --stacktrace; then
+              echo "Gradle Android build succeeded"
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then sleep 8; fi
+          done
+          echo "::error::Android Gradle build failed after retry; review Maven repository availability"
+          exit 1
       - name: Validate installed V4 UI files in APK
         run: |
           set -euo pipefail
