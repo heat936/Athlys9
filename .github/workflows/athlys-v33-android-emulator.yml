@@ -1,4 +1,4 @@
-name: Athlys V3.4 — Android WebView compatibility test
+name: Athlys V3.5 — Android WebView compatibility test
 on:
   workflow_dispatch:
   push:
@@ -21,11 +21,11 @@ jobs:
           else
             echo "::warning::KVM unavailable; emulator may time out"
           fi
-      - name: Download verified Athlys V3.4 APK
+      - name: Download verified Athlys V3.5 APK
         uses: actions/download-artifact@v4
         with:
           name: athlys-clean-slate-v3-debug-apk
-          run-id: 44368211550
+          run-id: 44371822513
           github-token: ${{ github.token }}
           path: target
       - name: Verify exact artifact before device test
@@ -51,7 +51,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: athlys-v34-android29-webview-evidence
+          name: athlys-v35-android29-webview-evidence
           path: |
             activity.txt
             athlys-ui.xml
