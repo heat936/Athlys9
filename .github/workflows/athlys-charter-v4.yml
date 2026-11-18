@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
-      # V4.3 adds authenticated Club session-boundary protection against delayed cross-account data responses.
+      # V4.3.1 includes mobile Club Plus logout and session privacy test gates.
       - name: Confirm clean-slate charter-only entrypoints
         run: |
           test -s web/athlys-brand-tokens-v4.css
