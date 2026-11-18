@@ -42,7 +42,7 @@ jobs:
       - name: Install dependencies (lockfile optional)
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
-      # Official vector logo and FLM build verification.
+      # Official vector logos including inverse loader, and FLM build verification.
       - name: FLM, branding, and release-preflight tests
         run: |
           node --test tests/feather-runtime.test.cjs tests/athlys-release-gates.test.cjs
