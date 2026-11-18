@@ -1,0 +1,91 @@
+name: Validate Athlys Web and Build Windows (public runner)
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-athlys-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: athlys-public-windows-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  web-quality:
+    name: Verify official Web and Club sources
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout private official Athlys source
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 2432fc29e889664cc759a582b526994063eac665
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test web and visual charter
+        run: |
+          npm install --no-audit --no-fund
+          npm run build:web
+          npm test
+          node --test web/mobile-experience.test.cjs
+          node --test web/site-vitrine.test.cjs
+          node scripts/check-cross-app-visual-system.cjs
+      - name: Check release invariant
+        run: |
+          test -s web/athlys-official-v1.css
+          test -s web/assets/athlys-lockup.svg
+          test -s web/assets/athlys-logo.svg
+          test -s docs/brand/ATHLYS_OFFICIAL_VISUAL_CHARTER.md
+
+  windows:
+    name: Windows ${{ matrix.app }} package
+    needs: web-quality
+    runs-on: windows-2022
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: desktop
+            output: athlys-windows
+          - app: desktop-club
+            output: athlys-club-windows
+    steps:
+      - name: Checkout private official Athlys source
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 2432fc29e889664cc759a582b526994063eac665
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build shared web bundles
+        shell: pwsh
+        run: |
+          npm install --no-audit --no-fund
+          npm run build:web
+      - name: Install and test ${{ matrix.app }}
+        working-directory: ${{ matrix.app }}
+        shell: pwsh
+        run: |
+          npm install --no-audit --no-fund
+          npm run check
+      - name: Package Windows installers
+        working-directory: ${{ matrix.app }}
+        shell: pwsh
+        run: npm run dist
+      - name: Upload Windows test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.output }}-official-v1-test
+          path: ${{ matrix.app }}/dist/*.exe
+          if-no-files-found: error
+          retention-days: 7
