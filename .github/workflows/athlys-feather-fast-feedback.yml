@@ -1,0 +1,36 @@
+name: Athlys Feather — fast innovation feedback
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/athlys-feather-fast-feedback.yml']
+permissions:
+  contents: read
+jobs:
+  feather:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: redesign/charter-only-v4-20261118
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install reproducible dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Check Feather runtime syntax
+        run: node --check web/feather-runtime.js
+      - name: Test Feather innovations
+        run: npm run test:feather
+      - name: Build WebView-compatible bundles
+        run: npm run build:web
+      - name: Verify Feather output remains bundled
+        run: |
+          test -s web/feather-runtime.js
+          test -s web/native-app.bundle.js
+          test -s web/supabase-client.bundle.js
