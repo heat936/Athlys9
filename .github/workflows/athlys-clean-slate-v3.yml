@@ -55,7 +55,12 @@ jobs:
           node --check web/app.js
           node --test tests/feather-runtime.test.cjs tests/athlys-release-gates.test.cjs
           npm test
-      - run: npm run build:web
+      - name: Build WebView compatibility (Chrome 74+)
+        run: |
+          npm run build:web
+          node --check web/app.js
+          node --check web/intent-launcher.bundle.js
+          node --check web/feather-runtime.js
       - name: Prepare Android
         run: |
           if [ ! -f android/gradlew ]; then npx cap add android; fi
