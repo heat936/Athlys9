@@ -49,7 +49,7 @@ jobs:
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
       # Official vector logos including inverse loader, and FLM build verification.
-      # Regression gate: official dark/light logos, accessible login and navigation, clean PWA, FLM.
+      # V3.2 gate: accessible auth, active navigation, athlete five-segment dial, FLM.
       - name: FLM, branding, and release-preflight tests
         run: |
           node --check web/app.js
