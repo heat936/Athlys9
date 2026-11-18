@@ -1,6 +1,7 @@
 name: Build Athlys FLM + Official UI APK
 on:
   workflow_dispatch:
+  # Verify Feather and brand rules in the generated APK.
   push:
     branches:
       - build/flm-official-ui-20261118
