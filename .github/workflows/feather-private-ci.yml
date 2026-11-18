@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: afff1f2926c2ff043d1184d2ce4cac89be5b7d6e
+          ref: fde0b60d4bb78a1a229de1ad20f6b1edcad9994d
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -38,6 +38,10 @@ jobs:
           node --test web/assistant-remote-only.test.cjs
           node --test web/mobile-experience.test.cjs
           node --test web/site-vitrine.test.cjs
+      - name: Parse all integrated Supabase Edge Function sources (syntax only)
+        run: |
+          ./node_modules/.bin/esbuild supabase/functions/athlys-assistant/index.ts supabase/functions/athlys-performance-analysis/index.ts supabase/functions/athlys-quantum-analysis/index.ts --bundle --platform=neutral --format=esm --external:'*' --outdir=/tmp/feather-edge-transpilation
+          node --check supabase/functions/_shared/athlys-feather-protocol.mjs
       - name: Verify Feather production invariants (no deployment)
         run: |
           node --check web/app.js
@@ -54,7 +58,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: afff1f2926c2ff043d1184d2ce4cac89be5b7d6e
+          ref: fde0b60d4bb78a1a229de1ad20f6b1edcad9994d
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -75,7 +79,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: afff1f2926c2ff043d1184d2ce4cac89be5b7d6e
+          ref: fde0b60d4bb78a1a229de1ad20f6b1edcad9994d
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
