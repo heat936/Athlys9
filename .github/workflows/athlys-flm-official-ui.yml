@@ -35,7 +35,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@v3
+      - name: Validate runner Android SDK
+        run: |
+          test -d "$ANDROID_HOME" || test -d "$ANDROID_SDK_ROOT"
+          java -version
       - name: Install dependencies (lockfile optional)
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
