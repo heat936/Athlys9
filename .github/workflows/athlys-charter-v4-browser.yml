@@ -50,6 +50,7 @@ jobs:
           else: raise SystemExit('V4 local browser server unavailable')
           PY
           python tests/browser-v33-auth-mock.py
+          python tests/browser-v4-desktop-club.py
       - name: Archive V4 screenshots and results
         if: always()
         uses: actions/upload-artifact@v4
