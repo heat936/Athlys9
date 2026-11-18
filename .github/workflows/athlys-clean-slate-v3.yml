@@ -49,7 +49,7 @@ jobs:
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
       # Official vector logos including inverse loader, and FLM build verification.
-      # V3.6 gate: Android-10-proven local Supabase and compact login form within 360px width.
+      # V3.7 gate: explicit accessible auth errors, ephemeral migration tests, Feather and Android 10 WebView.
       - name: FLM, branding, and release-preflight tests
         run: |
           node --check web/app.js
