@@ -25,6 +25,10 @@ jobs:
           if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
       - name: Check Feather runtime syntax
         run: node --check web/feather-runtime.js
+      - name: Verify Coach and Feather interface syntax
+        run: |
+          node --check web/app.js
+          node --check web/feather-runtime.js
       - name: Test Feather innovations
         run: npm run test:feather
       - name: Build WebView-compatible bundles
