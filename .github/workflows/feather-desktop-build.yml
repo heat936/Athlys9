@@ -1,0 +1,120 @@
+name: Feather Windows and macOS preview packages (private source)
+# Builds are unsigned developer previews. No release, deployment or source upload.
+on:
+  push:
+    branches:
+      - feat/feather-public-ci-20261118
+    paths:
+      - .github/workflows/feather-desktop-build.yml
+permissions:
+  contents: read
+concurrency:
+  group: feather-desktop-public
+  cancel-in-progress: false
+jobs:
+  windows:
+    name: Windows ${{ matrix.target }} installer
+    runs-on: windows-2022
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [desktop, desktop-club]
+    steps:
+      - name: Checkout private Feather PR source
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: fde0b60d4bb78a1a229de1ad20f6b1edcad9994d
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install web dependencies and build Athlys assets
+        run: |
+          npm install --no-audit --no-fund
+          npm run build:web
+          npm test
+      - name: Generate Windows icon from official Athlys asset
+        shell: bash
+        run: |
+          python -m pip install --quiet pillow
+          python - <<'PY'
+          from PIL import Image
+          from pathlib import Path
+          image = Image.open("web/assets/athlys-logo.png").convert("RGBA")
+          for target in ("desktop", "desktop-club"):
+              image.save(Path(target) / "athlys.ico",format="ICO",
+                         sizes=[(256,256),(128,128),(64,64),(48,48),(32,32),(16,16)])
+          PY
+      - name: Install ${{ matrix.target }} dependencies
+        run: npm install --prefix ${{ matrix.target }} --no-audit --no-fund
+      - name: Check and package ${{ matrix.target }}
+        run: |
+          npm --prefix ${{ matrix.target }} run check
+          npm --prefix ${{ matrix.target }} run dist
+      - name: Upload preview Windows installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: athlys-feather-${{ matrix.target }}-windows-preview
+          path: ${{ matrix.target }}/dist/*.exe
+          if-no-files-found: error
+          retention-days: 7
+
+  macos:
+    name: macOS x64 and Apple Silicon preview
+    runs-on: macos-15
+    timeout-minutes: 75
+    steps:
+      - name: Checkout private Feather PR source
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: fde0b60d4bb78a1a229de1ad20f6b1edcad9994d
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build Athlys web and run Feather tests
+        run: |
+          npm install --no-audit --no-fund
+          npm run build:web
+          npm test
+      - name: Create macOS ICNS from official Athlys logo
+        run: |
+          python -m pip install --quiet pillow
+          python - <<'PY'
+          from PIL import Image
+          from pathlib import Path
+          image = Image.open("web/assets/athlys-logo.png").convert("RGBA")
+          folder=Path("desktop/athlys.iconset")
+          folder.mkdir(parents=True, exist_ok=True)
+          for size in (16, 32, 128, 256, 512):
+              image.resize((size,size),Image.Resampling.LANCZOS).save(folder/f"icon_{size}x{size}.png")
+              image.resize((size*2,size*2),Image.Resampling.LANCZOS).save(folder/f"icon_{size}x{size}@2x.png")
+          PY
+          iconutil -c icns desktop/athlys.iconset -o desktop/athlys.icns
+      - name: Package macOS Feather previews
+        run: |
+          npm install --prefix desktop --no-audit --no-fund
+          npm --prefix desktop run check
+          npm --prefix desktop run dist:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Upload macOS test packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: athlys-feather-macos-preview
+          path: |
+            desktop/dist/*.dmg
+            desktop/dist/*.zip
+          if-no-files-found: error
+          retention-days: 7
