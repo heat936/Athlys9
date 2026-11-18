@@ -1,0 +1,38 @@
+name: Athlys V3.6 full release preflight
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/athlys-v36-release-preflight.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: redesign/clean-slate-v3-20261118
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install locked or reproducible dependencies
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+      - name: Verify release plus ephemeral PostgreSQL migration integrity
+        run: |
+          npm run verify:release
+          node --test tests/athlys-release-gates.test.cjs
+      - name: Browser bundle compatibility
+        run: |
+          npm run build:web
+          node --check web/app.js
+          node --check web/supabase-client.bundle.js
+      - name: Assert production keys are not embedded in runtime scripts
+        run: |
+          ! grep -E 'sb_secret_|SUPABASE_SERVICE_ROLE_KEY|service_role.*eyJ' web/app-config.js web/supabase-client.js
