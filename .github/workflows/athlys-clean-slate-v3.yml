@@ -49,9 +49,10 @@ jobs:
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
       # Official vector logos including inverse loader, and FLM build verification.
-      # Regression gate: old visual CSS removed, PWA/iOS shared tokens, official navigation and FLM.
+      # Regression gate: official dark/light logos, accessible login and navigation, clean PWA, FLM.
       - name: FLM, branding, and release-preflight tests
         run: |
+          node --check web/app.js
           node --test tests/feather-runtime.test.cjs tests/athlys-release-gates.test.cjs
           npm test
       - run: npm run build:web
