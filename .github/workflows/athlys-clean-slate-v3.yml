@@ -49,7 +49,7 @@ jobs:
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
       # Official vector logos including inverse loader, and FLM build verification.
-      # V3.5 gate: fully local transpiled Supabase, WebView Chrome74, FLM and unobstructed Plus tab.
+      # V3.6 gate: Android-10-proven local Supabase and compact login form within 360px width.
       - name: FLM, branding, and release-preflight tests
         run: |
           node --check web/app.js
