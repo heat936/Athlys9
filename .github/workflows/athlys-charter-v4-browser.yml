@@ -17,14 +17,21 @@ jobs:
           ref: redesign/charter-only-v4-20261118
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build local WebView scripts and self-hosted Inter before screenshots
+        run: |
+          npm install --no-audit --no-fund
+          npm run build:web
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - name: Install reproducible Chromium and browser tests
         run: |
           python -m pip install playwright==1.58.0
-          python -m playwright install --with-deps chromium
-      # V4.1 verifies compact form-first auth and no modal/tab collision.
+          python -m playwright install chromium
+      # V4.2 validates actual self-hosted Inter, form-first auth and modal/tab collision.
       - name: Nine isolated role/viewport tests and screenshots
         run: |
           set -euo pipefail
