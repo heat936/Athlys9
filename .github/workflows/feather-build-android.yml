@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: fde0b60d4bb78a1a229de1ad20f6b1edcad9994d # private Feather PR #115, immutable source commit
+          ref: 5b73ddb14c49978cbda2f664aade136962895986 # private Feather PR #115, immutable source commit
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           path: athlys-source
           persist-credentials: false
