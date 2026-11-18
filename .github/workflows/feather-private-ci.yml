@@ -1,0 +1,91 @@
+name: Feather private-source verification (public runner)
+# The source stays in Athlys2. The only public content is this workflow and job status.
+# Uses a pre-existing read-only repository token; no source or model artifact upload.
+on:
+  push:
+    branches:
+      - feat/feather-public-ci-20261118
+    paths:
+      - .github/workflows/feather-private-ci.yml
+permissions:
+  contents: read
+concurrency:
+  group: feather-private-validation
+  cancel-in-progress: true
+jobs:
+  web-and-client:
+    name: Feather application / regression / offline checks
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout private Athlys2 source (read only)
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: afff1f2926c2ff043d1184d2ce4cac89be5b7d6e
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Build bundled web assets
+        run: npm run build:web
+      - name: Run local Feather and Athlys tests
+        run: |
+          npm test
+          node --test web/assistant-remote-only.test.cjs
+          node --test web/mobile-experience.test.cjs
+          node --test web/site-vitrine.test.cjs
+      - name: Verify Feather production invariants (no deployment)
+        run: |
+          node --check web/app.js
+          node --check web/feather-runtime.js
+          node scripts/verify-release.cjs
+          node scripts/check-cross-app-visual-system.cjs
+
+  ml-training:
+    name: Feather training factory / quantization
+    runs-on: ubuntu-22.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout private Athlys2 source (read only)
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: afff1f2926c2ff043d1184d2ce4cac89be5b7d6e
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile pure Python learning factory
+        run: python -m compileall -q ml/athlys_intelligence
+      - name: Run privacy/ML tests (synthetic data only)
+        working-directory: ml
+        run: python -m unittest discover -s athlys_intelligence/tests -v
+
+  model-gateway:
+    name: Feather Node gateway and Docker
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout private Athlys2 source (read only)
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: afff1f2926c2ff043d1184d2ce4cac89be5b7d6e
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install locked gateway dependencies
+        working-directory: services/athlys-remote-ai
+        run: npm ci --no-audit --no-fund
+      - name: Verify full authenticated Feather gateway
+        working-directory: services/athlys-remote-ai
+        run: npm run verify
+      - name: Build isolated provider-neutral Docker image
+        run: docker build -t athlys/feather-ci services/athlys-remote-ai
