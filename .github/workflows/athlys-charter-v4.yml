@@ -1,0 +1,99 @@
+name: Athlys V4 official-charter UI — Android and QA
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/athlys-charter-v4.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify-and-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: redesign/charter-only-v4-20261118
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+      - name: Confirm clean-slate charter-only entrypoints
+        run: |
+          test -s web/athlys-brand-tokens-v4.css
+          test -s web/athlys-charter-ui-v4.css
+          test -s web/athlys-layout-core-v4.css
+          test -s web/athlys-layout-mobile-v4.css
+          test -s web/athlys-layout-desktop-v4.css
+          test -s web/athlys-layout-club-v4.css
+          ! test -e web/app.css
+          ! test -e web/desktop.css
+          ! test -e web/mobile-app.css
+          ! test -e web/club.css
+          ! test -e web/athlys-ui-v3.css
+          ! grep -E '(athlys-ui-v3|app.css|desktop.css|mobile-app.css|club.css)' web/index.html web/mobile.html web/app.html web/club-app.html web/sw.js
+      - name: Verify FLM, charter and session security
+        run: |
+          node --check web/app.js
+          npm run verify:release
+          node --test tests/athlys-release-gates.test.cjs tests/athlys-session-isolation.test.cjs tests/security-grants-team-rls.test.mjs
+      - name: Build WebView-compatible runtime
+        run: |
+          npm run build:web
+          node --check web/app.js
+          node --check web/feather-runtime.js
+          node --check web/supabase-client.bundle.js
+      - name: Prepare Android
+        run: |
+          if [ ! -f android/gradlew ]; then npx cap add android; fi
+          npx cap sync android
+      - name: Enable Health Connect desugaring and minSDK 26
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('android/app/build.gradle')
+          s=p.read_text()
+          if 'coreLibraryDesugaringEnabled' not in s:
+              if 'compileOptions {' not in s:
+                  s=s.replace('android {','android {\n    compileOptions {\n        sourceCompatibility JavaVersion.VERSION_17\n        targetCompatibility JavaVersion.VERSION_17\n    }',1)
+              s=s.replace('compileOptions {','compileOptions {\n        coreLibraryDesugaringEnabled true',1)
+          if "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:" not in s:
+              s=s.replace('dependencies {',"dependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'",1)
+          p.write_text(s)
+          v=Path('android/variables.gradle')
+          t,n=re.subn(r'(minSdkVersion\s*=\s*)\d+',r'\g<1>26',v.read_text(),count=1)
+          if n!=1: raise SystemExit('Android minSdkVersion not found')
+          v.write_text(t)
+          PY
+      - name: Build Android debug APK
+        working-directory: android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon
+      - name: Validate installed V4 UI files in APK
+        run: |
+          set -euo pipefail
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          unzip -Z1 "$APK" | grep -q 'assets/public/athlys-brand-tokens-v4.css'
+          unzip -Z1 "$APK" | grep -q 'assets/public/athlys-charter-ui-v4.css'
+          unzip -Z1 "$APK" | grep -q 'assets/public/feather-runtime.js'
+          ! unzip -Z1 "$APK" | grep -q 'assets/public/athlys-ui-v3.css'
+          sha256sum "$APK" > athlys-charter-v4.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: athlys-charter-only-v4-android-debug
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            athlys-charter-v4.sha256
+          retention-days: 30
