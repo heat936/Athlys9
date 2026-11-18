@@ -49,6 +49,20 @@ jobs:
         run: |
           if [ ! -f android/gradlew ]; then npx cap add android; fi
           npx cap sync android
+      - name: Enable Android core library desugaring for Health Connect
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('android/app/build.gradle')
+          s = p.read_text()
+          if 'coreLibraryDesugaringEnabled' not in s:
+              if 'compileOptions {' not in s: raise SystemExit('Android compileOptions missing')
+              s = s.replace('compileOptions {', 'compileOptions {\n        coreLibraryDesugaringEnabled true', 1)
+          if "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:" not in s:
+              if 'dependencies {' not in s: raise SystemExit('Android dependencies missing')
+              s = s.replace('dependencies {', "dependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'", 1)
+          p.write_text(s)
+          PY
       - name: Build Android APK
         working-directory: android
         run: |
