@@ -29,7 +29,7 @@ jobs:
         run: |
           node --check web/app.js
           node --check web/feather-runtime.js
-      # Validate the interactive Coach microcycle chart and day drill-down regression.
+      # Confirm interactive Coach chart and updated heading through the complete Feather test suite.
       - name: Test Feather innovations
         run: npm run test:feather
       - name: Build WebView-compatible bundles
