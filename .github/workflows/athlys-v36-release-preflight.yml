@@ -28,7 +28,7 @@ jobs:
       - name: Verify release plus ephemeral PostgreSQL migration integrity
         run: |
           npm run verify:release
-          node --test tests/athlys-release-gates.test.cjs
+          node --test tests/athlys-release-gates.test.cjs tests/athlys-session-isolation.test.cjs
       - name: Browser bundle compatibility
         run: |
           npm run build:web
