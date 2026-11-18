@@ -1,0 +1,82 @@
+name: Athlys V3.3 — Android installation and launch
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/athlys-v33-android-emulator.yml']
+permissions:
+  actions: read
+  contents: read
+jobs:
+  android-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Allow KVM acceleration on Linux runner
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+            ls -l /dev/kvm
+          else
+            echo "::warning::KVM unavailable; emulator may time out"
+          fi
+      - name: Download verified Athlys V3.3 APK
+        uses: actions/download-artifact@v4
+        with:
+          name: athlys-clean-slate-v3-debug-apk
+          run-id: 44362580013
+          github-token: ${{ github.token }}
+          path: target
+      - name: Verify exact artifact before device test
+        run: |
+          set -euo pipefail
+          (cd target && sha256sum -c athlys-clean-slate-v3.sha256)
+          test -s target/android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Boot Android API 29 and validate installation and launch
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          heap-size: 512M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          emulator-boot-timeout: 480
+          script: |
+            set -euo pipefail
+            APK=target/android/app/build/outputs/apk/debug/app-debug.apk
+            adb wait-for-device
+            adb install -r "$APK"
+            PKG=$(aapt dump badging "$APK" | sed -n "s/package: name='\([^']*\)'.*/\1/p")
+            test -n "$PKG"
+            echo "Package installed: $PKG"
+            adb shell pm path "$PKG" | grep -q package:
+            adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1
+            sleep 7
+            adb shell dumpsys activity activities > activity.txt
+            adb shell uiautomator dump /sdcard/athlys-ui.xml || true
+            adb pull /sdcard/athlys-ui.xml ./athlys-ui.xml || true
+            adb exec-out screencap -p > athlys-screen.png
+            adb logcat -d -t 3000 > athlys-logcat.txt
+            grep -F "$PKG" activity.txt
+            test -s athlys-screen.png
+            if grep -A20 'FATAL EXCEPTION' athlys-logcat.txt | grep -F "$PKG"; then
+              echo "::error::Athlys native crash detected"
+              exit 1
+            fi
+      - name: Preserve smoke test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: athlys-v33-android29-install-evidence
+          path: |
+            activity.txt
+            athlys-ui.xml
+            athlys-screen.png
+            athlys-logcat.txt
+          if-no-files-found: warn
+          retention-days: 14
