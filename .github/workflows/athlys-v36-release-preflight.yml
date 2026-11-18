@@ -24,7 +24,7 @@ jobs:
       - name: Install locked or reproducible dependencies
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
-      # Security 034 gate: test restricted default grants and nonrecursive team membership policy with JWT contexts.
+      # Security 034 gate: verify definer search_path from pg_proc and restricted default grants.
       - name: Verify release plus ephemeral PostgreSQL migration integrity
         run: |
           npm run verify:release
