@@ -25,7 +25,7 @@ jobs:
           python -m py_compile tests/browser-v33-auth-mock.py
           python -m pip install playwright==1.58.0
           python -m playwright install --with-deps chromium
-      # Regression: tablet Plus action stays clear; Python source syntax gate.
+      # Regression: compact Android login submit visible at 360x640; mock Supabase and tablet Plus clear.
       - name: Serve isolated source and test nine role/viewport combinations
         run: |
           set -euo pipefail
