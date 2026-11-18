@@ -5,7 +5,7 @@ on:
       source_ref:
         description: Approved Athlys2 ref
         required: true
-        default: redesign/clean-slate-v3-20261118
+        default: redesign/charter-only-v4-20261118
 permissions:
   contents: read
 concurrency:
@@ -47,6 +47,7 @@ jobs:
           npm test
           node --check web/app.js
           node --test tests/athlys-release-gates.test.cjs
+          node --test tests/athlys-session-isolation.test.cjs tests/athlys-club-session-boundary.test.cjs tests/security-grants-team-rls.test.mjs
           test -s scripts/build-web-compat.cjs
           test -s models/flm/approved-validation.json || { echo "::error::Trained FLM independently validated model evidence absent"; exit 1; }
           node -e "const x=require('./models/flm/approved-validation.json');if(x.status!=='approved'||!x.model_digest||!x.evaluation_dataset||!x.reviewed_by||!x.reviewed_at)process.exit(1)"
@@ -104,7 +105,9 @@ jobs:
           "$BUILD_TOOLS/apksigner" sign --ks signing.jks --ks-key-alias "$KEY_ALIAS" --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD --out Athlys-Android-Release.apk aligned.apk
           "$BUILD_TOOLS/apksigner" verify --verbose Athlys-Android-Release.apk
           unzip -Z1 Athlys-Android-Release.apk | grep -q 'assets/public/feather-runtime.js'
-          unzip -Z1 Athlys-Android-Release.apk | grep -q 'assets/public/athlys-ui-v3.css'
+          unzip -Z1 Athlys-Android-Release.apk | grep -q 'assets/public/athlys-brand-tokens-v4.css'
+          unzip -Z1 Athlys-Android-Release.apk | grep -q 'assets/public/athlys-charter-ui-v4.css'
+          ! unzip -Z1 Athlys-Android-Release.apk | grep -q 'assets/public/athlys-ui-v3.css'
           sha256sum Athlys-Android-Release.apk > Athlys-Android-Release.apk.sha256
       - uses: actions/upload-artifact@v4
         with:
