@@ -5,7 +5,7 @@ on:
       source_ref:
         description: Approved Athlys2 ref
         required: true
-        default: build/athlys-flm-official-ui-20261118
+        default: redesign/clean-slate-v3-20261118
 permissions:
   contents: read
 concurrency:
@@ -45,12 +45,16 @@ jobs:
       - name: Full source and independent FLM validation gates
         run: |
           npm test
+          node --check web/app.js
           node --test tests/athlys-release-gates.test.cjs
+          test -s scripts/build-web-compat.cjs
           test -s models/flm/approved-validation.json || { echo "::error::Trained FLM independently validated model evidence absent"; exit 1; }
           node -e "const x=require('./models/flm/approved-validation.json');if(x.status!=='approved'||!x.model_digest||!x.evaluation_dataset||!x.reviewed_by||!x.reviewed_at)process.exit(1)"
       - name: Build web and Android
         run: |
           npm run build:web
+          node --check web/app.js
+          node --check web/intent-launcher.bundle.js
           npx cap add android
           npx cap sync android
       - name: Configure generated Android for Health Connect
@@ -73,6 +77,10 @@ jobs:
           if n!=1: raise RuntimeError('Missing minSdk')
           variables.write_text(v)
           PY
+      - name: Require documented Android release acceptance
+        run: |
+          test -s docs/qa/approved-android-release.json || { echo "::error::Android acceptance evidence not approved"; exit 1; }
+          node -e "const a=require('./docs/qa/approved-android-release.json');if(a.status!=='approved'||!a.physical_device_test||!a.accessibility_review||!a.reviewer||!a.review_date)process.exit(1)"
       - name: Build unsigned release
         working-directory: android
         run: |
@@ -96,7 +104,7 @@ jobs:
           "$BUILD_TOOLS/apksigner" sign --ks signing.jks --ks-key-alias "$KEY_ALIAS" --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD --out Athlys-Android-Release.apk aligned.apk
           "$BUILD_TOOLS/apksigner" verify --verbose Athlys-Android-Release.apk
           unzip -Z1 Athlys-Android-Release.apk | grep -q 'assets/public/feather-runtime.js'
-          unzip -Z1 Athlys-Android-Release.apk | grep -q 'assets/public/athlys-official-ui-v1.css'
+          unzip -Z1 Athlys-Android-Release.apk | grep -q 'assets/public/athlys-ui-v3.css'
           sha256sum Athlys-Android-Release.apk > Athlys-Android-Release.apk.sha256
       - uses: actions/upload-artifact@v4
         with:
