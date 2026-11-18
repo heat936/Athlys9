@@ -29,6 +29,7 @@ jobs:
         run: |
           npm run verify:release
           node --test tests/athlys-release-gates.test.cjs tests/athlys-session-isolation.test.cjs
+          node --test tests/security-grants-team-rls.test.mjs
       - name: Browser bundle compatibility
         run: |
           npm run build:web
