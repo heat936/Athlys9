@@ -22,9 +22,10 @@ jobs:
           python-version: '3.11'
       - name: Install browser test runtime
         run: |
+          python -m py_compile tests/browser-v33-auth-mock.py
           python -m pip install playwright==1.58.0
           python -m playwright install --with-deps chromium
-      # Regression: tablet navigation must stay clear of the assistant launcher.
+      # Regression: tablet Plus action stays clear; Python source syntax gate.
       - name: Serve isolated source and test nine role/viewport combinations
         run: |
           set -euo pipefail
