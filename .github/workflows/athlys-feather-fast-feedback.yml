@@ -20,9 +20,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
-      - name: Install reproducible dependencies
-        run: npm ci --no-audit --no-fund
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
       - name: Check Feather runtime syntax
         run: node --check web/feather-runtime.js
       - name: Test Feather innovations
