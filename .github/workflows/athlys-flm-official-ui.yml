@@ -1,0 +1,64 @@
+name: Build Athlys FLM + Official UI APK
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - build/flm-official-ui-20261118
+  pull_request:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout private source only in runner
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: build/athlys-flm-official-ui-20261118
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - name: Verify FLM and official theme
+        run: |
+          test -s web/feather-runtime.js
+          test -s web/feather-contract.js
+          test -s web/athlys-official-ui-v1.css
+          grep -q 'feather-runtime.js' web/mobile.html
+          grep -q 'athlys-official-ui-v1.css' web/mobile.html
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - run: npm ci
+      - name: FLM runtime tests
+        run: node --test tests/feather-runtime.test.cjs
+      - run: npm run build:web
+      - name: Prepare Android
+        run: |
+          if [ ! -f android/gradlew ]; then npx cap add android; fi
+          npx cap sync android
+      - name: Build Android APK
+        working-directory: android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon
+      - name: Verify APK FLM and UI content
+        run: |
+          unzip -Z1 android/app/build/outputs/apk/debug/app-debug.apk | grep -q 'assets/public/feather-runtime.js'
+          unzip -Z1 android/app/build/outputs/apk/debug/app-debug.apk | grep -q 'assets/public/feather-contract.js'
+          unzip -Z1 android/app/build/outputs/apk/debug/app-debug.apk | grep -q 'assets/public/athlys-official-ui-v1.css'
+          sha256sum android/app/build/outputs/apk/debug/app-debug.apk > athlys-flm-official-ui.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: athlys-flm-official-ui-debug-apk
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            athlys-flm-official-ui.sha256
+          retention-days: 30
