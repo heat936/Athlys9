@@ -23,4 +23,8 @@ if grep -A20 "FATAL EXCEPTION" athlys-logcat.txt | grep -F "$PKG"; then
   echo "::error::Athlys native crash detected"
   exit 1
 fi
-echo "PASS: APK installation, foreground launch, screenshot, no fatal crash"
+if grep -E 'Capacitor/Console.*(Uncaught|SyntaxError)|Capacitor: JavaScript Error:' athlys-logcat.txt; then
+  echo "::error::WebView JavaScript load error detected; native launch alone is not sufficient"
+  exit 1
+fi
+echo "PASS: APK installed, foreground app launched, screenshot present, no native/JS fatal error"
