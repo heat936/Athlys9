@@ -24,6 +24,7 @@ jobs:
       - name: Install locked or reproducible dependencies
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+      # Regression gate: neutral and accessible auth errors, persistent data isolation.
       - name: Verify release plus ephemeral PostgreSQL migration integrity
         run: |
           npm run verify:release
