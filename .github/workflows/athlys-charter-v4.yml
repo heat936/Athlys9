@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
-      # V4.2 includes official self-hosted Inter, iconography, isolated dialogs and pure charter tokens.
+      # V4.3 adds authenticated Club session-boundary protection against delayed cross-account data responses.
       - name: Confirm clean-slate charter-only entrypoints
         run: |
           test -s web/athlys-brand-tokens-v4.css
@@ -47,7 +47,7 @@ jobs:
         run: |
           node --check web/app.js
           npm run verify:release
-          node --test tests/athlys-release-gates.test.cjs tests/athlys-session-isolation.test.cjs tests/security-grants-team-rls.test.mjs
+          node --test tests/athlys-release-gates.test.cjs tests/athlys-session-isolation.test.cjs tests/athlys-club-session-boundary.test.cjs tests/security-grants-team-rls.test.mjs
       - name: Build WebView-compatible runtime
         run: |
           npm run build:web
