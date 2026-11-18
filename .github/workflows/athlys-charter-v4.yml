@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
-      # V4.1 includes iconography, accessible feeling scale and compact modal/login corrections.
+      # V4.2 includes official self-hosted Inter, iconography, isolated dialogs and pure charter tokens.
       - name: Confirm clean-slate charter-only entrypoints
         run: |
           test -s web/athlys-brand-tokens-v4.css
@@ -97,6 +97,8 @@ jobs:
           APK=android/app/build/outputs/apk/debug/app-debug.apk
           unzip -Z1 "$APK" | grep -q 'assets/public/athlys-brand-tokens-v4.css'
           unzip -Z1 "$APK" | grep -q 'assets/public/athlys-charter-ui-v4.css'
+          unzip -Z1 "$APK" | grep -q 'assets/public/fonts/inter-var.woff2'
+          unzip -Z1 "$APK" | grep -q 'assets/public/fonts/inter-latin-ext-var.woff2'
           unzip -Z1 "$APK" | grep -q 'assets/public/feather-runtime.js'
           ! unzip -Z1 "$APK" | grep -q 'assets/public/athlys-ui-v3.css'
           sha256sum "$APK" > athlys-charter-v4.sha256
