@@ -31,13 +31,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
       - uses: android-actions/setup-android@v3
-      - run: npm ci
+      - name: Install dependencies (lockfile optional)
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
       - name: FLM runtime tests
         run: node --test tests/feather-runtime.test.cjs
       - run: npm run build:web
