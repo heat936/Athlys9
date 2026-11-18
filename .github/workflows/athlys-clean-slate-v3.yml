@@ -1,0 +1,99 @@
+name: Athlys Clean Slate v3 Android APK
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/athlys-clean-slate-v3.yml'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout private source only in runner
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: redesign/clean-slate-v3-20261118
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - name: Verify FLM and v3 clean-slate entrypoints
+        run: |
+          test -s web/feather-runtime.js
+          test -s web/feather-contract.js
+          test -s web/athlys-ui-v3.css
+          grep -q 'feather-runtime.js' web/mobile.html
+          grep -q 'athlys-ui-v3.css' web/mobile.html
+          test ! -e web/refonte.css
+          test ! -e web/app-visual-polish.css
+          test ! -e web/athlys-design-system.css
+          test ! -e web/auth-branding.css
+          test ! -e web/mobile-loader.css
+          test ! -e web/ios.css
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Validate runner Android SDK
+        run: |
+          test -d "$ANDROID_HOME" || test -d "$ANDROID_SDK_ROOT"
+          java -version
+      - name: Install dependencies (lockfile optional)
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+      # Official vector logos including inverse loader, and FLM build verification.
+      - name: FLM, branding, and release-preflight tests
+        run: |
+          node --test tests/feather-runtime.test.cjs tests/athlys-release-gates.test.cjs
+          npm test
+      - run: npm run build:web
+      - name: Prepare Android
+        run: |
+          if [ ! -f android/gradlew ]; then npx cap add android; fi
+          npx cap sync android
+      - name: Enable Android core library desugaring for Health Connect
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('android/app/build.gradle')
+          s = p.read_text()
+          if 'coreLibraryDesugaringEnabled' not in s:
+              if 'compileOptions {' not in s:
+                  s = s.replace('android {', 'android {\n    compileOptions {\n        sourceCompatibility JavaVersion.VERSION_17\n        targetCompatibility JavaVersion.VERSION_17\n    }', 1)
+              s = s.replace('compileOptions {', 'compileOptions {\n        coreLibraryDesugaringEnabled true', 1)
+          if "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:" not in s:
+              if 'dependencies {' not in s: raise SystemExit('Android dependencies missing')
+              s = s.replace('dependencies {', "dependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'", 1)
+          p.write_text(s)
+          import re
+          variables = Path('android/variables.gradle')
+          values = variables.read_text()
+          values, count = re.subn(r'(minSdkVersion\s*=\s*)\d+', r'\g<1>26', values, count=1)
+          if count != 1: raise SystemExit('Android minSdkVersion not found')
+          variables.write_text(values)
+          PY
+      - name: Build Android APK
+        working-directory: android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon
+      - name: Verify APK FLM and UI content
+        run: |
+          unzip -Z1 android/app/build/outputs/apk/debug/app-debug.apk | grep -q 'assets/public/feather-runtime.js'
+          unzip -Z1 android/app/build/outputs/apk/debug/app-debug.apk | grep -q 'assets/public/feather-contract.js'
+          unzip -Z1 android/app/build/outputs/apk/debug/app-debug.apk | grep -q 'assets/public/athlys-ui-v3.css'
+          sha256sum android/app/build/outputs/apk/debug/app-debug.apk > athlys-clean-slate-v3.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: athlys-clean-slate-v3-debug-apk
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            athlys-clean-slate-v3.sha256
+          retention-days: 30
