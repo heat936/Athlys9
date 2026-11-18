@@ -49,7 +49,7 @@ jobs:
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
       # Official vector logos including inverse loader, and FLM build verification.
-      # V3.3 gate: real browser-identified modal overlay, active role, accessible dialog + FLM.
+      # V3.4 final gate: legacy WebView syntax and unobstructed Plus tab with FLM.
       - name: FLM, branding, and release-preflight tests
         run: |
           node --check web/app.js
