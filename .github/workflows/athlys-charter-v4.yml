@@ -18,6 +18,35 @@ jobs:
           ref: redesign/charter-only-v4-20261118
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
+      - name: Capture immutable build provenance
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+          source_sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          public_sha = os.environ['GITHUB_SHA']
+          if not re.fullmatch(r'[0-9a-f]{40}', source_sha):
+              raise SystemExit('Invalid source commit SHA')
+          if not re.fullmatch(r'[0-9a-f]{40}', public_sha):
+              raise SystemExit('Invalid workflow commit SHA')
+          payload = {
+              'source_repository': 'heat936/Athlys2',
+              'source_ref': 'redesign/charter-only-v4-20261118',
+              'source_commit': source_sha,
+              'workflow_repository': os.environ['GITHUB_REPOSITORY'],
+              'workflow_commit': public_sha,
+              'workflow_run_id': os.environ['GITHUB_RUN_ID'],
+              'workflow_run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+              'build_type': 'android-debug'
+          }
+          Path('athlys-build-provenance.json').write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          print('Source commit:', source_sha)
+          print('Workflow commit:', public_sha)
+          PY
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -101,11 +130,15 @@ jobs:
           unzip -Z1 "$APK" | grep -q 'assets/public/fonts/inter-latin-ext-var.woff2'
           unzip -Z1 "$APK" | grep -q 'assets/public/feather-runtime.js'
           ! unzip -Z1 "$APK" | grep -q 'assets/public/athlys-ui-v3.css'
+          test -s athlys-build-provenance.json
           sha256sum "$APK" > athlys-charter-v4.sha256
+          sha256sum athlys-build-provenance.json > athlys-build-provenance.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: athlys-charter-only-v4-android-debug
           path: |
             android/app/build/outputs/apk/debug/app-debug.apk
             athlys-charter-v4.sha256
+            athlys-build-provenance.json
+            athlys-build-provenance.sha256
           retention-days: 30
