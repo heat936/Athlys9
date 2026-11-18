@@ -31,7 +31,7 @@ jobs:
         run: |
           python -m pip install playwright==1.58.0
           python -m playwright install chromium
-      # V4.2.1 validates desktop/Club workflows and hostile fictitious input sanitization.
+      # V4.3 validates signed-in Club account switching, logout isolation and role limitations.
       - name: Nine isolated role/viewport tests and screenshots
         run: |
           set -euo pipefail
@@ -51,6 +51,7 @@ jobs:
           PY
           python tests/browser-v33-auth-mock.py
           python tests/browser-v4-desktop-club.py
+          python tests/browser-v4-club-auth-mock.py
       - name: Archive V4 screenshots and results
         if: always()
         uses: actions/upload-artifact@v4
