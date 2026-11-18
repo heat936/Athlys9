@@ -24,7 +24,7 @@ jobs:
       - name: Install locked or reproducible dependencies
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
-      # Regression gate: cross-account private/group messaging, logout cache erasure and all release tests.
+      # V3.8 gate: direct/group cross-account privacy, all Health Connect state erased, FLM and PostgreSQL tests.
       - name: Verify release plus ephemeral PostgreSQL migration integrity
         run: |
           npm run verify:release
