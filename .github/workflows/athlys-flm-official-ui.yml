@@ -63,6 +63,12 @@ jobs:
               if 'dependencies {' not in s: raise SystemExit('Android dependencies missing')
               s = s.replace('dependencies {', "dependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'", 1)
           p.write_text(s)
+          import re
+          variables = Path('android/variables.gradle')
+          values = variables.read_text()
+          values, count = re.subn(r'(minSdkVersion\s*=\s*)\d+', r'\g<1>26', values, count=1)
+          if count != 1: raise SystemExit('Android minSdkVersion not found')
+          variables.write_text(values)
           PY
       - name: Build Android APK
         working-directory: android
