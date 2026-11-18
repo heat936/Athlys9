@@ -17,6 +17,29 @@ jobs:
           ref: redesign/charter-only-v4-20261118
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
+      - name: Record browser evidence provenance
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          from pathlib import Path
+          source_sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          if not re.fullmatch(r'[0-9a-f]{40}', source_sha):
+              raise SystemExit('Invalid source SHA')
+          evidence = {
+              'source_repository': 'heat936/Athlys2',
+              'source_ref': 'redesign/charter-only-v4-20261118',
+              'source_commit': source_sha,
+              'workflow_repository': os.environ['GITHUB_REPOSITORY'],
+              'workflow_commit': os.environ['GITHUB_SHA'],
+              'workflow_run_id': os.environ['GITHUB_RUN_ID'],
+              'workflow_run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+              'evidence_type': 'browser-ui-acceptance'
+          }
+          Path('test-evidence').mkdir(exist_ok=True)
+          Path('test-evidence/browser-provenance.json').write_text(
+              json.dumps(evidence, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          print('Browser tested source commit:', source_sha)
+          PY
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
