@@ -1,4 +1,4 @@
-name: Athlys V3.5 — Android WebView compatibility test
+name: Athlys V3.6 — Android WebView compatibility test
 on:
   workflow_dispatch:
   push:
@@ -21,11 +21,11 @@ jobs:
           else
             echo "::warning::KVM unavailable; emulator may time out"
           fi
-      - name: Download verified Athlys V3.5 APK
+      - name: Download verified Athlys V3.6 APK
         uses: actions/download-artifact@v4
         with:
           name: athlys-clean-slate-v3-debug-apk
-          run-id: 44371822513
+          run-id: 44374161463
           github-token: ${{ github.token }}
           path: target
       - name: Verify exact artifact before device test
@@ -33,7 +33,7 @@ jobs:
           set -euo pipefail
           (cd target && sha256sum -c athlys-clean-slate-v3.sha256)
           test -s target/android/app/build/outputs/apk/debug/app-debug.apk
-      - name: Boot Android 10 and verify V3.4 WebView with bounded ADB actions
+      - name: Boot Android 10 and verify V3.6 WebView with bounded ADB actions
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 29
@@ -51,7 +51,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: athlys-v35-android29-webview-evidence
+          name: athlys-v36-android29-compact-login-evidence
           path: |
             activity.txt
             athlys-ui.xml
