@@ -26,6 +26,8 @@ jobs:
         run: |
           node --check web/app.js
           node --check web/dual-perception.js
+          node --check web/athletics-fields.js
+          node --check web/sw.js
           node --check web/offline-sync.js
           node --check web/offline-store.js
           node --check web/feather-runtime.js
