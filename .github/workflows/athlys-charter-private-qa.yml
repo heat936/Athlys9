@@ -1,0 +1,89 @@
+name: Athlys private-source charter QA (public runner)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/athlys-charter-private-qa.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: athlys-private-charter-qa
+  cancel-in-progress: false
+
+jobs:
+  validate-private-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout immutable private Athlys2 source (read-only)
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 266d81a65e2611d216dcaa72507d3bdbbce7bb35
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - name: Assert private source provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          expected="266d81a65e2611d216dcaa72507d3bdbbce7bb35"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::Unexpected private source commit"
+            exit 1
+          fi
+          echo "Verified source commit: $actual"
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run charter integration and manifest checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run test:visual-charter
+          node --check web/sw.js
+          node --check web/club.js
+          node --check web/site.js
+          node --check desktop-club/copy-web.cjs
+          node -e "JSON.parse(require('fs').readFileSync('capacitor.config.json','utf8'))"
+          node -e "JSON.parse(require('fs').readFileSync('web/mobile.webmanifest','utf8'))"
+      - name: Verify Windows Club offline package includes its charter
+        shell: bash
+        run: |
+          set -euo pipefail
+          node desktop-club/copy-web.cjs
+          test -s desktop-club/web/index.html
+          test -s desktop-club/web/athlys-club-charter.css
+          grep -q 'athlys-club-charter.css' desktop-club/web/index.html
+          echo "PASS: Windows Club package contains official charter stylesheet."
+      - name: Verify mobile PWA precache references exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs=require('fs');
+          const sw=fs.readFileSync('web/sw.js','utf8');
+          const m=sw.match(/const SHELL = \[([\s\S]*?)\];/);
+          if(!m) throw new Error('PWA SHELL missing');
+          const paths=[...m[1].matchAll(/"([^"]+)"/g)].map(x=>x[1]);
+          for(const url of paths){
+            const pathname=url.split(/[?#]/)[0];
+            const filename='web'+(pathname==='/'?'/index.html':pathname);
+            if(!fs.existsSync(filename)) throw new Error('Missing precache asset: '+filename);
+          }
+          console.log('PASS:',paths.length,'PWA assets resolved');
+          NODE
+      - name: Publish sanitized verification summary (no source artifacts)
+        if: always()
+        shell: bash
+        run: |
+          echo "## Athlys official-charter QA" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Private source: heat936/Athlys2" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Source SHA: \`266d81a65e2611d216dcaa72507d3bdbbce7bb35\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- No private code or compiled packages are uploaded." >> "$GITHUB_STEP_SUMMARY"
+          echo "- Review completed step conclusions above before release." >> "$GITHUB_STEP_SUMMARY"
