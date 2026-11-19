@@ -1,0 +1,37 @@
+name: Athlys V6 — production web smoke
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-v6-web-production-smoke.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Check V6 production web pages and static runtime assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in / /mobile.html /club-app.html /app.js /product-v6.js /training-intelligence.js /athletics-engine-v2.js /dual-perception.js /offline-sync.js /feather-runtime.js /supabase-client.bundle.js /athlys-layout-core-v4.css /sw.js /assets/athlys-logo.svg /fonts/inter-var.woff2; do
+            code="$(curl -L -sS -o /dev/null -w '%{http_code}' --max-time 20 "https://athlys-v6-pwa.vercel.app$path")"
+            if [ "$code" != 200 ]; then echo "::error::V6_WEB_RESOURCE_BAD_HTTP path=$path status=$code"; exit 1; fi
+            echo "PASS: PWA resource $path"
+          done
+          curl -fsSL --max-time 25 https://athlys-v6-pwa.vercel.app/app.js | grep -q "Data Fusion" || { echo "::error::V6_DATA_FUSION_UI_ABSENT"; exit 1; }
+          curl -fsSL --max-time 25 https://athlys-v6-pwa.vercel.app/club-app.html | grep -q "Athlys Club" || { echo "::error::V6_CLUB_HTML_ABSENT"; exit 1; }
+          curl -fsSL --max-time 25 https://athlys-v6-pwa.vercel.app/training-intelligence.js | grep -q "AthlysTrainingIntelligence" || { echo "::error::V6_INTELLIGENCE_ABSENT"; exit 1; }
+          echo "PASS: production V6 PWA live content contracts"
+      - name: Check standalone V6 Club deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in / /club.js /product-v6.js /supabase-client.bundle.js /athlys-layout-club-v4.css /assets/athlys-lockup-inverse.svg; do
+            code="$(curl -L -sS -o /dev/null -w '%{http_code}' --max-time 20 "https://athlys-v6-club.vercel.app$path")"
+            if [ "$code" != 200 ]; then echo "::error::V6_CLUB_RESOURCE_BAD_HTTP path=$path status=$code"; exit 1; fi
+            echo "PASS: Club resource $path"
+          done
+          curl -fsSL --max-time 25 https://athlys-v6-club.vercel.app/ | grep -q "Athlys Club" || { echo "::error::CLUB_ROOT_NOT_CORRECT"; exit 1; }
+          echo "PASS: standalone Club root and runtime"
