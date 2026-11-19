@@ -28,7 +28,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! (npm ci --no-audit --no-fund && npm run build:web && python -m pip install playwright==1.58.0 && python -m playwright install chromium) >/tmp/v5-browser-setup.log 2>&1; then
+          if ! (npm install --no-audit --no-fund && npm run build:web && python -m pip install playwright==1.58.0 && python -m playwright install chromium) >/tmp/v5-browser-setup.log 2>&1; then
             echo "::error::Browser environment preparation failed. Private install logs withheld."
             exit 1
           fi
@@ -77,7 +77,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! (npm ci --no-audit --no-fund && npm run build:web && npx cap sync android) >/tmp/v5-android-setup.log 2>&1; then
+          if ! (npm install --no-audit --no-fund && npm run build:web && (test -f android/gradlew || npx cap add android) && npx cap sync android) >/tmp/v5-android-setup.log 2>&1; then
             echo "::error::Android prerequisites failed; private logs withheld."
             exit 1
           fi
@@ -132,7 +132,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: |
           $ErrorActionPreference = "Stop"
-          npm ci --no-audit --no-fund *> "$env:RUNNER_TEMP\athlys-root.log"
+          npm install --no-audit --no-fund *> "$env:RUNNER_TEMP\athlys-root.log"
           if ($LASTEXITCODE -ne 0) { throw "Root install failed; private logs withheld" }
           npm run build:web *> "$env:RUNNER_TEMP\athlys-web.log"
           if ($LASTEXITCODE -ne 0) { throw "Web build failed; private logs withheld" }
