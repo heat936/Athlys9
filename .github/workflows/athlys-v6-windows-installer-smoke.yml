@@ -1,0 +1,62 @@
+name: Athlys V6 — private Windows installer smoke
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-v6-windows-installer-smoke.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  win-install:
+    runs-on: windows-2022
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [desktop, desktop-club]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 227c3330a7a25722159f818be9dc4e51b5e5adeb
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build and silently install NSIS package on Windows runner
+        shell: pwsh
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          $ErrorActionPreference = "Stop"
+          npm install --no-audit --no-fund *> "$env:RUNNER_TEMP\athlys-root.log"
+          if ($LASTEXITCODE -ne 0) { throw "ROOT_INSTALL_FAILED" }
+          npm run build:web *> "$env:RUNNER_TEMP\athlys-web.log"
+          if ($LASTEXITCODE -ne 0) { throw "WEB_BUILD_FAILED" }
+          Push-Location "${{ matrix.app }}"
+          try {
+            npm install --no-audit --no-fund *> "$env:RUNNER_TEMP\athlys-electron.log"
+            if ($LASTEXITCODE -ne 0) { throw "DESKTOP_INSTALL_FAILED" }
+            npm run dist *> "$env:RUNNER_TEMP\athlys-desktop-package.log"
+            if ($LASTEXITCODE -ne 0) { throw "DESKTOP_PACKAGE_FAILED" }
+            $setup = @(Get-ChildItem dist -Filter *.exe -File | Where-Object { $_.Name -notmatch 'Portable' })
+            $portable = @(Get-ChildItem dist -Filter *Portable*.exe -File)
+            if ($setup.Count -ne 1 -or $portable.Count -ne 1) { throw "EXPECTED_INSTALLER_AND_PORTABLE_NOT_FOUND" }
+            if ("${{ matrix.app }}" -eq "desktop") {
+              foreach ($asset in @("web/training-intelligence.js","web/athletics-engine-v2.js","web/product-v6.js")) {
+                if (!(Test-Path $asset)) { throw "V6_DESKTOP_BUNDLE_INCOMPLETE" }
+              }
+            } else {
+              if (!(Test-Path "web/product-v6.js")) { throw "V6_CLUB_BUNDLE_INCOMPLETE" }
+            }
+            $target = Join-Path $env:RUNNER_TEMP "athlys-v6-install-${{ matrix.app }}"
+            $run = Start-Process -FilePath $setup[0].FullName -ArgumentList @("/S","/D=$target") -Wait -PassThru
+            if ($run.ExitCode -ne 0) { throw "NSIS_SILENT_INSTALL_NONZERO_EXIT" }
+            $binary = @(Get-ChildItem $target -Filter *.exe -File -Recurse | Where-Object { $_.Name -notmatch 'unins|update' })
+            if ($binary.Count -eq 0) { throw "WINDOWS_APP_BINARY_MISSING_AFTER_INSTALL" }
+            Write-Output "PASS: ${{ matrix.app }} NSIS silent install, executable and portable package"
+            Write-Output "CI virtual Windows validation only; no certificate or physical-device claim"
+          } finally {
+            Pop-Location
+          }
