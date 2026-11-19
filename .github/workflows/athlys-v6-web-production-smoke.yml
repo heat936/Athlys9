@@ -31,11 +31,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for path in / /club.js /product-v6.js /supabase-client.bundle.js /athlys-layout-club-v4.css /assets/athlys-lockup-inverse.svg; do
+          for path in / /club.js /product-v6.js /supabase-client.bundle.js /athlys-layout-club-v4.css /assets/athlys-lockup-inverse.svg /manifest.webmanifest /pwa.js /sw.js; do
             code="$(curl -L -sS -o /dev/null -w '%{http_code}' --max-time 20 "https://athlys-v6-club.vercel.app$path")"
             if [ "$code" != 200 ]; then echo "::error::V6_CLUB_RESOURCE_BAD_HTTP path=$path status=$code"; exit 1; fi
             echo "PASS: Club resource $path"
           done
           curl -fsSL --max-time 25 https://athlys-v6-club.vercel.app/ -o /tmp/athlys-v6-club-root.html
           grep -q "Athlys Club" /tmp/athlys-v6-club-root.html || { echo "::error::CLUB_ROOT_NOT_CORRECT"; exit 1; }
-          echo "PASS: standalone Club root and runtime"
+          curl -fsSL --max-time 25 https://athlys-v6-club.vercel.app/manifest.webmanifest -o /tmp/athlys-v6-club-manifest.json
+          grep -q "Athlys Club" /tmp/athlys-v6-club-manifest.json || { echo "::error::CLUB_PWA_MANIFEST_INVALID"; exit 1; }
+          echo "PASS: standalone Club root, installable PWA manifest and runtime"
