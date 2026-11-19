@@ -1,0 +1,45 @@
+name: Athlys V5 — private product acceptance on public runner
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/athlys-v5-product-validation.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  product:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout authorized private source without persisting token
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: feature/dual-perception-offline-flm-v5-20261119
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate cross-platform source syntax
+        run: |
+          node --check web/app.js
+          node --check web/dual-perception.js
+          node --check web/offline-sync.js
+          node --check web/offline-store.js
+          node --check web/feather-runtime.js
+          node --check web/mobile.js
+          node --check web/club.js
+      - name: Run synthetic product regression suite (no private artifact uploads)
+        run: |
+          npm run test:athletics
+          npm run test:dual-perception
+          npm run test:offline-sync
+          npm run test:feather
+          npm run test:feather-platform
+      - name: Validate mobile and desktop shell dependencies
+        run: |
+          node --test tests/v5-shell-contract.test.cjs
+      - name: Mark product checks complete
+        run: echo "Private source tests completed on ephemeral runner; no source or athlete information uploaded as artifacts."
