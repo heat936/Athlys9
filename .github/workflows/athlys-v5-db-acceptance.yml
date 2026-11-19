@@ -39,13 +39,22 @@ jobs:
         run: |
           set -euo pipefail
           export PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres PGDATABASE=athlys_v5_fixture
-          if ! psql --set=ON_ERROR_STOP=1 --quiet --file=tests/dual-perception-schema-fixture.sql > /tmp/athlys-fixture.log 2>&1; then
+          if ! psql --set=ON_ERROR_STOP=1 --set=VERBOSITY=sqlstate --quiet --file=tests/dual-perception-schema-fixture.sql > /tmp/athlys-fixture.log 2>&1; then
             echo "::error::Ephemeral schema fixture failed"; exit 1
           fi
-          if ! psql --set=ON_ERROR_STOP=1 --quiet --file=supabase/migrations/20261119210000_athlys_dual_perception.sql > /tmp/athlys-migration.log 2>&1; then
+          if ! psql --set=ON_ERROR_STOP=1 --set=VERBOSITY=sqlstate --quiet --file=supabase/migrations/20261119210000_athlys_dual_perception.sql > /tmp/athlys-migration.log 2>&1; then
             echo "::error::Dual Perception migration rejected by PostgreSQL 17"; exit 1
           fi
-          if ! psql --set=ON_ERROR_STOP=1 --quiet --file=tests/dual-perception-schema-acceptance.sql > /tmp/athlys-policy.log 2>&1; then
-            echo "::error::Dual Perception synthetic coach-athlete policy acceptance failed"; exit 1
+          if ! psql --set=ON_ERROR_STOP=1 --set=VERBOSITY=sqlstate --quiet --file=tests/dual-perception-schema-acceptance.sql > /tmp/athlys-policy.log 2>&1; then
+            python3 - <<'PY'
+          import re
+          from pathlib import Path
+          logs=Path("/tmp/athlys-policy.log").read_text(errors="replace")
+          lines=re.findall(r"psql:[^:]+:(\d+): ERROR:\s*([0-9A-Z]{5})",logs)
+          for line,state in lines[:2]:
+              print(f"::error::SQL_ACCEPTANCE_LINE_{line}_STATE_{state}")
+          if not lines: print("::error::SQL_ACCEPTANCE_UNKNOWN")
+          PY
+            exit 1
           fi
           echo "PASS: Ephemeral PostgreSQL 17 DDL, coach/athlete RLS, exact training linkage"
