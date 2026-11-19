@@ -1,0 +1,72 @@
+name: Athlys V5 — isolated mock browser diagnostics
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-v5-browser-isolation.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 26
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: b5b24777a5ff7c569192aa25f57942b7de1a3707
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Prepare synthetic browser
+        run: |
+          set -euo pipefail
+          if ! (npm install --no-audit --no-fund && npm run build:web && python -m pip install playwright==1.58.0 && python -m playwright install chromium) >/tmp/setup.log 2>&1; then
+            echo "::error::SETUP_FAILED"; exit 1
+          fi
+      - name: Run mobile mock and print bounded diagnostic category only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m http.server 8765 --directory web --bind 127.0.0.1 >/tmp/browser-server.log 2>&1 &
+          SERVER=$!
+          trap 'kill $SERVER 2>/dev/null || true' EXIT
+          python - <<'PY'
+          import urllib.request,time
+          for _ in range(50):
+              try:
+                  urllib.request.urlopen("http://127.0.0.1:8765/mobile.html",timeout=2)
+                  break
+              except Exception: time.sleep(.3)
+          else: raise SystemExit("TEST_SERVER_UNAVAILABLE")
+          PY
+          if python tests/browser-v33-auth-mock.py >/tmp/mobile-run.log 2>&1; then
+            echo "PASS: mobile mocked journeys"
+          else
+            python - <<'PY'
+          from pathlib import Path
+          text=Path('/tmp/mobile-run.log').read_text(errors='replace')
+          # Never emit raw traceback or app content. Only allow-listed issue types.
+          tests={
+            'LOGIN_LAYOUT': ['login submit button must be reachable'],
+            'MOBILE_NAVIGATION': ['mobile-nav', 'aria-current'],
+            'ASSISTANT_OVERLAP': ['assistant button obscures'],
+            'LOGIN_ERROR_VIEW': ['Incorrect login error presentation'],
+            'HORIZONTAL_OVERFLOW': ['horizontal overflow'],
+            'BROWSER_JS_EXCEPTION': ['JS errors:'],
+            'BROWSER_TIMEOUT': ['TimeoutError'],
+            'SCRIPT_ASSERTION': ['AssertionError']
+          }
+          for name,patterns in tests.items():
+              if any(value.lower() in text.lower() for value in patterns):
+                  print('::error::MOBILE_' + name)
+                  break
+          else: print('::error::MOBILE_OTHER_ERROR')
+          PY
+            exit 1
+          fi
