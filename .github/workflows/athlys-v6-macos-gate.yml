@@ -1,0 +1,45 @@
+name: Athlys V6 — private macOS installer validation
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-v6-macos-gate.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 8761b64aff2bc2374b57ae511482d091e81eac54
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build Electron macOS x64 and arm64 privately
+        shell: bash
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          set -euo pipefail
+          if ! (npm install --no-audit --no-fund && npm run build:web) >/tmp/athlys-mac-root.log 2>&1; then
+            echo "::error::macOS root build prerequisites failed (logs withheld)"
+            exit 1
+          fi
+          cd desktop
+          if ! (npm install --no-audit --no-fund && npm run dist:mac) >/tmp/athlys-mac-build.log 2>&1; then
+            echo "::error::macOS installer packaging failed (logs withheld)"
+            exit 1
+          fi
+          test -s web/dual-perception.js
+          test -s web/offline-sync.js
+          test -s web/feather-runtime.js
+          test -s web/training-intelligence.js
+          test -s web/athletics-engine-v2.js
+          test -s web/product-v6.js
+          find dist -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' \) | grep -q .
+          echo "PASS: Athlys macOS packages generated privately; no private artifacts published."
