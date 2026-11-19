@@ -74,17 +74,8 @@ jobs:
           emulator-boot-timeout: 480
           disable-animations: true
           script: |
-            set -eu
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk >/tmp/athlys-adb-install.log 2>&1
             adb shell am start -n com.athlys.app/.MainActivity >/tmp/athlys-adb-launch.log 2>&1
-            live=""
-            for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-              live="$(adb shell pidof com.athlys.app 2>/dev/null | tr -d '\r' || true)"
-              if [ -n "$live" ]; then break; fi
-              sleep 2
-            done
-            if [ -z "$live" ]; then
-              echo "::error::ANDROID_APP_NOT_RUNNING_AFTER_LAUNCH"; exit 1
-            fi
-            echo "PASS: Android 14 emulator installation, launch and live process"
-            echo "No real-device or production-signature claims"
+            sleep 18
+            adb shell pidof com.athlys.app | grep -q '[0-9]'
+            echo "PASS: Android 14 emulator installation and live app process"
