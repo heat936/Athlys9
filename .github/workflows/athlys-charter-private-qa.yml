@@ -23,7 +23,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: 266d81a65e2611d216dcaa72507d3bdbbce7bb35
+          ref: d12c4f714188499fef8ee4a329694b352aff1c1b
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - name: Assert private source provenance
@@ -31,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           actual="$(git rev-parse HEAD)"
-          expected="266d81a65e2611d216dcaa72507d3bdbbce7bb35"
+          expected="d12c4f714188499fef8ee4a329694b352aff1c1b"
           if [ "$actual" != "$expected" ]; then
             echo "::error::Unexpected private source commit"
             exit 1
@@ -84,6 +84,6 @@ jobs:
         run: |
           echo "## Athlys official-charter QA" >> "$GITHUB_STEP_SUMMARY"
           echo "- Private source: heat936/Athlys2" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Source SHA: \`266d81a65e2611d216dcaa72507d3bdbbce7bb35\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Source SHA: \`d12c4f714188499fef8ee4a329694b352aff1c1b\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- No private code or compiled packages are uploaded." >> "$GITHUB_STEP_SUMMARY"
           echo "- Review completed step conclusions above before release." >> "$GITHUB_STEP_SUMMARY"
