@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: 86446bf136de64f52145321ac81d0a2c8c9bb4bd
+          ref: b5b24777a5ff7c569192aa25f57942b7de1a3707
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -51,10 +51,14 @@ jobs:
           else:
               raise SystemExit("Browser test server unavailable")
           PY
-          if ! (python tests/browser-v33-auth-mock.py && python tests/browser-v4-desktop-club.py && python tests/browser-v4-club-auth-mock.py) > /tmp/v5-browser-results.log 2>&1; then
-            echo "::error::One or more mocked browser journeys failed; private screenshots/logs withheld."
-            exit 1
-          fi
+          for script in browser-v33-auth-mock.py browser-v4-desktop-club.py browser-v4-club-auth-mock.py; do
+            if python "tests/$script" > /tmp/v5-browser-results.log 2>&1; then
+              echo "PASS: $script"
+            else
+              echo "::error::FAIL: $script (private details withheld)"
+              exit 1
+            fi
+          done
           echo "Browser coach, athlete, club and viewport checks passed"
   android:
     runs-on: ubuntu-24.04
@@ -63,7 +67,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: 86446bf136de64f52145321ac81d0a2c8c9bb4bd
+          ref: b5b24777a5ff7c569192aa25f57942b7de1a3707
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -120,7 +124,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: 86446bf136de64f52145321ac81d0a2c8c9bb4bd
+          ref: b5b24777a5ff7c569192aa25f57942b7de1a3707
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
