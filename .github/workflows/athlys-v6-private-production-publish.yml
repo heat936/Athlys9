@@ -100,6 +100,10 @@ jobs:
             s=s.replace("compileOptions {","compileOptions {\n        coreLibraryDesugaringEnabled true",1)
           if "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:" not in s:
             s=s.replace("dependencies {","dependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'",1)
+          s,n=re.subn(r"(?m)^(\\s*versionCode\\s+)\\d+\\s*$",r"\\g<1>60000",s,count=1)
+          if n!=1:raise SystemExit("ANDROID_VERSION_CODE_NOT_FOUND")
+          s,n=re.subn(r'(?m)^(\\s*versionName\\s+)"[^"]+"',r'\\g<1>"6.0.0"',s,count=1)
+          if n!=1:raise SystemExit("ANDROID_VERSION_NAME_NOT_FOUND")
           p.write_text(s)
           v=Path("android/variables.gradle")
           t,n=re.subn(r"(minSdkVersion\s*=\s*)\d+",r"\g<1>26",v.read_text(),count=1)
@@ -171,6 +175,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "WEB_BUNDLE_FAILED" }
           Push-Location "${{ matrix.app }}"
           try {
+            npm pkg set version=6.0.0 *> "$env:RUNNER_TEMP\athlys-win-version.log"
+            if ($LASTEXITCODE -ne 0) { throw "WINDOWS_VERSION_STAMP_FAILED" }
             npm install --no-audit --no-fund *> "$env:RUNNER_TEMP\athlys-win-install.log"
             if ($LASTEXITCODE -ne 0) { throw "ELECTRON_DEPS_FAILED" }
             npm run dist *> "$env:RUNNER_TEMP\athlys-win-dist.log"
