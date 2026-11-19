@@ -10,11 +10,15 @@ jobs:
   diagnose:
     runs-on: ubuntu-24.04
     timeout-minutes: 26
+    strategy:
+      fail-fast: false
+      matrix:
+        revision: [baseline, candidate]
     steps:
       - uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: b5b24777a5ff7c569192aa25f57942b7de1a3707
+          ref: ${{ matrix.revision == 'baseline' && 'redesign/charter-only-v4-20261118' || 'b5b24777a5ff7c569192aa25f57942b7de1a3707' }}
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -72,7 +76,7 @@ jobs:
           for row in failed[:3]:
               role=row.get('role','unknown')
               if role not in allow: role='unknown'
-              width=row.get('viewport',0)
+              width=row.get('width',0)
               if not isinstance(width,int) or width not in (360,393,768): width=0
               error=str(row.get('error','')).lower()
               category='OTHER'
@@ -85,7 +89,8 @@ jobs:
                   elif 'page.' in error: category='PAGE'
                   elif 'net::' in error: category='NETWORK'
                   elif 'strict mode' in error: category='SELECTOR'
-              print(f'::error::MOBILE_{role.upper()}_{width}_{category}')
+              stage='AFTER_NAV' if row.get('navigation')=='4 tabs OK' else 'BEFORE_NAV'
+              print(f'::error::MOBILE_{role.upper()}_{width}_{stage}_{category}')
           if not failed: print('::error::MOBILE_UNPARSEABLE_RESULT')
           PY
             exit 1
