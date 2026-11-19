@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - duo/public-runner-20261119
+      - main
     paths:
       - .github/workflows/duo-public-models.yml
   workflow_dispatch:
