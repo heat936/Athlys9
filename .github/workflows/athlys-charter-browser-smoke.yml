@@ -1,0 +1,88 @@
+name: Athlys charter browser smoke — private source
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/athlys-charter-browser-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  browser-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: d12c4f714188499fef8ee4a329694b352aff1c1b
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - name: Confirm immutable private source
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "d12c4f714188499fef8ee4a329694b352aff1c1b"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Playwright Chromium
+        run: |
+          python -m pip install playwright==1.58.0
+          python -m playwright install chromium
+      - name: Browser smoke check for the public and app entrypoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m http.server 8765 --directory web --bind 127.0.0.1 >/tmp/athlys-smoke-http.log 2>&1 &
+          SERVER=$!
+          trap 'kill "$SERVER" 2>/dev/null || true' EXIT
+          python - <<'PY'
+          import time,urllib.request
+          for _ in range(30):
+              try:
+                  urllib.request.urlopen('http://127.0.0.1:8765/landing.html',timeout=2)
+                  break
+              except Exception: time.sleep(.2)
+          else: raise SystemExit('Local HTTP server did not start')
+          from playwright.sync_api import sync_playwright
+          base='http://127.0.0.1:8765'
+          targets={
+            '/landing.html':'athlys-site-charter.css',
+            '/club.html':'athlys-site-charter.css',
+            '/club-demo.html':'athlys-club-demo-charter.css',
+            '/index.html':'athlys-charter-reset.css',
+            '/mobile.html':'athlys-charter-reset.css',
+            '/club-app.html':'athlys-club-charter.css',
+          }
+          with sync_playwright() as p:
+              browser=p.chromium.launch(headless=True)
+              for width,height in [(390,844),(1366,900)]:
+                  for url,css in targets.items():
+                      page=browser.new_page(viewport={'width':width,'height':height},reduced_motion='reduce')
+                      errors=[]
+                      page.on('pageerror',lambda e: errors.append(str(e)))
+                      response=page.goto(base+url,wait_until='domcontentloaded',timeout=20000)
+                      assert response and response.status==200,(url,response.status if response else None)
+                      result=page.evaluate('''expected=>{
+                        const links=[...document.querySelectorAll('link[rel="stylesheet"]')];
+                        return {hasSheet:links.some(l=>new URL(l.href).pathname.endsWith('/'+expected)),
+                                bodyWidth:document.body.scrollWidth,viewport:document.documentElement.clientWidth,
+                                title:document.title}
+                      }''',css)
+                      assert result['hasSheet'],(url,'missing stylesheet',result)
+                      assert result['title'],(url,'missing title')
+                      assert result['bodyWidth']<result['viewport']+120,(url,width,'severe horizontal overflow',result)
+                      print('PASS',url,width,'loaded charter',css)
+                      page.close()
+              browser.close()
+          PY
+      - name: Summarize verified source and caveats
+        if: always()
+        run: |
+          echo "## Athlys browser smoke" >> "$GITHUB_STEP_SUMMARY"
+          echo "Private source SHA: d12c4f714188499fef8ee4a329694b352aff1c1b" >> "$GITHUB_STEP_SUMMARY"
+          echo "Checks: 6 entrypoints at 390px and 1366px; stylesheet references, title and severe horizontal overflow." >> "$GITHUB_STEP_SUMMARY"
+          echo "No screenshots, private code, or credentials are uploaded. Authenticated functional journeys are not covered." >> "$GITHUB_STEP_SUMMARY"
