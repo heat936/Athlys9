@@ -1,0 +1,76 @@
+name: Athlys V6 — Android emulator startup smoke
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/athlys-v6-android-emulator-smoke.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  emulator:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: b6fa89e6c18e7fd6f3ce4ab574601727591ebfd8
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Build debug Android package without exposing source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! (npm install --no-audit --no-fund && npm run build:web && (test -f android/gradlew || npx cap add android) && npx cap sync android) >/tmp/athlys-android-prep.log 2>&1; then
+            echo "::error::ANDROID_SETUP_FAILED (private details suppressed)"; exit 1
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path("android/app/build.gradle")
+          s=p.read_text()
+          if "coreLibraryDesugaringEnabled" not in s:
+              if "compileOptions {" not in s:
+                  s=s.replace("android {","android {\n    compileOptions {\n        sourceCompatibility JavaVersion.VERSION_17\n        targetCompatibility JavaVersion.VERSION_17\n    }",1)
+              s=s.replace("compileOptions {","compileOptions {\n        coreLibraryDesugaringEnabled true",1)
+          if "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:" not in s:
+              s=s.replace("dependencies {","dependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'",1)
+          p.write_text(s)
+          v=Path("android/variables.gradle")
+          t,n=re.subn(r"(minSdkVersion\s*=\s*)\d+",r"\g<1>26",v.read_text(),count=1)
+          if n!=1: raise SystemExit("minSdk variable missing")
+          v.write_text(t)
+          PY
+          chmod +x android/gradlew
+          if ! (cd android && ./gradlew assembleDebug --no-daemon) >/tmp/athlys-android-compile.log 2>&1; then
+            echo "::error::ANDROID_BUILD_FAILED (private details suppressed)"; exit 1
+          fi
+          test -s android/app/build/outputs/apk/debug/app-debug.apk
+          echo "PASS: Android debug app built"
+      - name: Run Android 14 emulator process smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            adb install -r android/app/build/outputs/apk/debug/app-debug.apk >/tmp/athlys-adb-install.log 2>&1
+            adb shell am start -n com.athlys.app/.MainActivity >/tmp/athlys-adb-launch.log 2>&1
+            sleep 12
+            PID="$(adb shell pidof com.athlys.app | tr -d '\r')"
+            if [ -z "$PID" ]; then
+              echo "::error::ANDROID_APP_NOT_RUNNING_AFTER_LAUNCH"; exit 1
+            fi
+            echo "PASS: Android 14 emulator installation, launch and live process"
+            echo "No real-device or production-signature claims"
