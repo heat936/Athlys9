@@ -1,0 +1,151 @@
+name: Athlys V5 — private Android Windows browser gates
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/athlys-v5-cross-platform-gate.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 27
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 86446bf136de64f52145321ac81d0a2c8c9bb4bd
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Prepare browser QA quietly
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! (npm ci --no-audit --no-fund && npm run build:web && python -m pip install playwright==1.58.0 && python -m playwright install chromium) >/tmp/v5-browser-setup.log 2>&1; then
+            echo "::error::Browser environment preparation failed. Private install logs withheld."
+            exit 1
+          fi
+          echo "Browser environment prepared"
+      - name: Run synthetic role and viewport UI tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m http.server 8765 --directory web --bind 127.0.0.1 >/tmp/v5-local-server.log 2>&1 &
+          SERVER=$!
+          trap 'kill $SERVER 2>/dev/null || true' EXIT
+          python - <<'PY'
+          import time, urllib.request
+          for n in range(50):
+              try:
+                  urllib.request.urlopen("http://127.0.0.1:8765/mobile.html", timeout=2)
+                  break
+              except Exception:
+                  time.sleep(.3)
+          else:
+              raise SystemExit("Browser test server unavailable")
+          PY
+          if ! (python tests/browser-v33-auth-mock.py && python tests/browser-v4-desktop-club.py && python tests/browser-v4-club-auth-mock.py) > /tmp/v5-browser-results.log 2>&1; then
+            echo "::error::One or more mocked browser journeys failed; private screenshots/logs withheld."
+            exit 1
+          fi
+          echo "Browser coach, athlete, club and viewport checks passed"
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 86446bf136de64f52145321ac81d0a2c8c9bb4bd
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Build Android debug privately on ephemeral public runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! (npm ci --no-audit --no-fund && npm run build:web && npx cap sync android) >/tmp/v5-android-setup.log 2>&1; then
+            echo "::error::Android prerequisites failed; private logs withheld."
+            exit 1
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path("android/app/build.gradle")
+          s=p.read_text()
+          if "coreLibraryDesugaringEnabled" not in s:
+              if "compileOptions {" not in s:
+                  s=s.replace("android {","android {\n    compileOptions {\n        sourceCompatibility JavaVersion.VERSION_17\n        targetCompatibility JavaVersion.VERSION_17\n    }",1)
+              s=s.replace("compileOptions {","compileOptions {\n        coreLibraryDesugaringEnabled true",1)
+          if "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:" not in s:
+              s=s.replace("dependencies {","dependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'",1)
+          p.write_text(s)
+          v=Path("android/variables.gradle")
+          t,n=re.subn(r"(minSdkVersion\s*=\s*)\d+",r"\g<1>26",v.read_text(),count=1)
+          if n!=1: raise SystemExit("Android minSDK definition absent")
+          v.write_text(t)
+          PY
+          chmod +x android/gradlew
+          if ! (cd android && ./gradlew assembleDebug --no-daemon) >/tmp/v5-android-build.log 2>&1; then
+            echo "::error::Android Gradle build failed; private build logs withheld."
+            exit 1
+          fi
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          unzip -Z1 "$APK" | grep -q 'assets/public/dual-perception.js'
+          unzip -Z1 "$APK" | grep -q 'assets/public/offline-sync.js'
+          unzip -Z1 "$APK" | grep -q 'assets/public/feather-runtime.js'
+          echo "Android debug APK built and V5 runtime assets verified (not publicly uploaded)"
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [desktop, desktop-club]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 86446bf136de64f52145321ac81d0a2c8c9bb4bd
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Package Windows executable without publishing private code
+        shell: pwsh
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          $ErrorActionPreference = "Stop"
+          npm ci --no-audit --no-fund *> "$env:RUNNER_TEMP\athlys-root.log"
+          if ($LASTEXITCODE -ne 0) { throw "Root install failed; private logs withheld" }
+          npm run build:web *> "$env:RUNNER_TEMP\athlys-web.log"
+          if ($LASTEXITCODE -ne 0) { throw "Web build failed; private logs withheld" }
+          Push-Location "${{ matrix.app }}"
+          try {
+            npm install --no-audit --no-fund *> "$env:RUNNER_TEMP\athlys-electron.log"
+            if ($LASTEXITCODE -ne 0) { throw "Electron install failed; private logs withheld" }
+            npm run dist *> "$env:RUNNER_TEMP\athlys-package.log"
+            if ($LASTEXITCODE -ne 0) { throw "Windows packaging failed; private logs withheld" }
+            $exe = Get-ChildItem -Path dist -Filter *.exe -File
+            if ($exe.Count -eq 0) { throw "Windows executable missing" }
+            if ("${{ matrix.app }}" -eq "desktop") {
+              if (!(Test-Path "web/dual-perception.js") -or !(Test-Path "web/offline-sync.js")) { throw "V5 desktop assets missing" }
+            }
+            Write-Output "Windows package compiled for ${{ matrix.app }}; no executable uploaded publicly"
+          } finally { Pop-Location }
