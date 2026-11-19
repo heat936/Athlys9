@@ -1,0 +1,51 @@
+name: Athlys V5 — isolated Dual Perception database acceptance
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/athlys-v5-db-acceptance.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  database:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: local-fixture-only
+          POSTGRES_DB: athlys_v5_fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d athlys_v5_fixture"
+          --health-interval 3s
+          --health-timeout 2s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: feature/dual-perception-offline-flm-v5-20261119
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - name: Apply fixture, migration and role-isolation smoke tests
+        shell: bash
+        env:
+          PGPASSWORD: local-fixture-only
+        run: |
+          set -euo pipefail
+          export PGHOST=127.0.0.1 PGPORT=5432 PGUSER=postgres PGDATABASE=athlys_v5_fixture
+          if ! psql --set=ON_ERROR_STOP=1 --quiet --file=tests/dual-perception-schema-fixture.sql > /tmp/athlys-fixture.log 2>&1; then
+            echo "::error::Ephemeral schema fixture failed"; exit 1
+          fi
+          if ! psql --set=ON_ERROR_STOP=1 --quiet --file=supabase/migrations/20261119210000_athlys_dual_perception.sql > /tmp/athlys-migration.log 2>&1; then
+            echo "::error::Dual Perception migration rejected by PostgreSQL 17"; exit 1
+          fi
+          if ! psql --set=ON_ERROR_STOP=1 --quiet --file=tests/dual-perception-schema-acceptance.sql > /tmp/athlys-policy.log 2>&1; then
+            echo "::error::Dual Perception synthetic coach-athlete policy acceptance failed"; exit 1
+          fi
+          echo "PASS: Ephemeral PostgreSQL 17 DDL, coach/athlete RLS, exact training linkage"
