@@ -1,0 +1,113 @@
+name: Athlys FLM — Quantum bridge & INT8 ONNX acceptance
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/athlys-flm-quantum-onnx-acceptance.yml'
+permissions:
+  contents: read
+jobs:
+  client:
+    name: Feather Quantum client and bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 88b81b5a7bf935a804437dac8f4aaae2aa8c180a
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install application dependencies
+        run: |
+          if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+      - name: Verify Feather client integration and release invariants
+        run: npm run verify:release
+      - name: Bundle Web and Capacitor assets
+        run: npm run build:web
+      - name: Check Quantum bridge in offline PWA shell
+        run: |
+          test -s web/feather-quantum-bridge.js
+          grep -q feather-quantum-bridge.js web/mobile.html
+          grep -q feather-quantum-bridge.js web/index.html
+          grep -q feather-quantum-bridge.js web/sw.js
+  desktop-onnx:
+    name: INT8 ONNX CPU parity — ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 88b81b5a7bf935a804437dac8f4aaae2aa8c180a
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install ONNX test dependencies
+        run: python -m pip install numpy==2.2.6 onnx==1.20.0 onnxruntime==1.23.2
+      - name: Run actual INT8 ONNX Runtime parity and CPU timing
+        working-directory: ml
+        run: python -m athlys_intelligence.onnx_parity --output-dir reports/onnx --iterations 200
+      - name: Export ONNX execution report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flm-onnx-${{ matrix.os }}
+          path: ml/reports/onnx/onnx-smoke-report.json
+          if-no-files-found: ignore
+  android-onnx:
+    name: Android emulator INT8 ONNX instrumentation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 88b81b5a7bf935a804437dac8f4aaae2aa8c180a
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Generate synthetic INT8 ONNX model for instrumentation
+        working-directory: ml
+        run: |
+          python -m pip install numpy==2.2.6 onnx==1.20.0 onnxruntime==1.23.2
+          python -m athlys_intelligence.onnx_parity --output-dir onnx-android-smoke/app/src/main/assets --iterations 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - uses: android-actions/setup-android@v3
+      - name: Enable KVM for emulator
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+      - name: Run Android ONNX Runtime instrumentation
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          script: cd ml/onnx-android-smoke && gradle :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Upload instrumented test reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flm-onnx-android-emulator
+          path: ml/onnx-android-smoke/app/build/reports/androidTests/connected/
+          if-no-files-found: ignore
