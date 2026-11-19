@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: bf8b69bcd0b11352937bc815d6d54c8610a9188c
+          ref: 2a043b5b4b5fb0a5d1156990a0681b16c9dd8c7a
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -49,7 +49,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: bf8b69bcd0b11352937bc815d6d54c8610a9188c
+          ref: 2a043b5b4b5fb0a5d1156990a0681b16c9dd8c7a
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -83,7 +83,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: bf8b69bcd0b11352937bc815d6d54c8610a9188c
+          ref: 2a043b5b4b5fb0a5d1156990a0681b16c9dd8c7a
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
