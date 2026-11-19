@@ -1,10 +1,11 @@
 name: Duo Bridge — free local two-model test
 on:
   push:
-    branches: [duo/free-local-models-20261119]
+    branches: [main, duo/chat-plugin-trigger-20261119]
     paths:
       - .github/workflows/duo-free-local.yml
       - duo-bridge-public/free_local_bridge.py
+      - duo-bridge-public/requests/**
   workflow_dispatch:
 permissions:
   contents: read
@@ -18,6 +19,8 @@ jobs:
       OLLAMA_KEEP_ALIVE: 0
     steps:
       - uses: actions/checkout@v4
+      - name: Validate public request
+        run: python3 duo-bridge-public/resolve_request.py
       - name: Install Ollama locally, without credentials
         run: |
           set -euo pipefail
