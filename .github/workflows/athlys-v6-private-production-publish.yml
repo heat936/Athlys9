@@ -160,6 +160,7 @@ jobs:
         env:
           CSC_LINK: ${{ secrets.ATHLYS_WINDOWS_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.ATHLYS_WINDOWS_CSC_KEY_PASSWORD }}
+          GH_TOKEN: ${{ secrets.ATHLYS_RELEASE_WRITE_TOKEN }}
         run: |
           $ErrorActionPreference="Stop"
           npm install --no-audit --no-fund *> "$env:RUNNER_TEMP\athlys-root.log"
@@ -189,10 +190,6 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "PRIVATE_RELEASE_UPLOAD_FAILED" }
             Write-Output "PASS: signed Windows packages published to private release for ${{ matrix.app }}"
           } finally { Pop-Location }
-        env:
-          CSC_LINK: ${{ secrets.ATHLYS_WINDOWS_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.ATHLYS_WINDOWS_CSC_KEY_PASSWORD }}
-          GH_TOKEN: ${{ secrets.ATHLYS_RELEASE_WRITE_TOKEN }}
   promote-production:
     needs: [android, windows]
     runs-on: ubuntu-24.04
