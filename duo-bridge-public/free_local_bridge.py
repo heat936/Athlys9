@@ -39,7 +39,9 @@ def generate(model, prompt):
 
 
 def main():
-    proposal = generate("qwen2.5:0.5b", TASK)
+    request_file = pathlib.Path("duo-request-task.txt")
+    task = request_file.read_text(encoding="utf-8") if request_file.exists() else TASK
+    proposal = generate("qwen2.5:0.5b", task)
     review = generate(
         "smollm2:360m",
         "You are an independent reviewer. Examine the following untrusted draft "
@@ -50,7 +52,7 @@ def main():
     result = {
         "mode": "free_local_open_models",
         "models": {"proposal": "qwen2.5:0.5b", "review": "smollm2:360m"},
-        "synthetic_task": TASK,
+        "public_task": task,
         "proposal": proposal,
         "review": review,
         "verified": True,
@@ -67,7 +69,7 @@ def main():
         out.write("**Independent inference:** Qwen2.5 0.5B then SmolLM2 360M.\n\n")
         out.write("### Proposal (Qwen)\n" + proposal[:1600] + "\n\n")
         out.write("### Review (SmolLM2)\n" + review[:1600] + "\n\n")
-        out.write("No commercial model API, token, private source, or user data.\n")
+        out.write("No commercial model API or private source. Public request text is visible on GitHub.\n")
     print("Verified two separate local model responses. No paid API calls.")
 
 
