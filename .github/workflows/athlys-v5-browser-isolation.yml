@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: 2fecada820251c8fc612ed92f3e7ffb8368997d3
+          ref: 5b93733c8d5da6fe6d3932d013fe2941074454fa
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
