@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: feature/dual-perception-offline-flm-v5-20261119
+          ref: b5b24777a5ff7c569192aa25f57942b7de1a3707
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -33,16 +33,26 @@ jobs:
           node --check web/feather-runtime.js
           node --check web/mobile.js
           node --check web/club.js
-      - name: Run synthetic product regression suite (no private artifact uploads)
+      - name: Run all synthetic product tests without exposing private failure traces
+        shell: bash
         run: |
-          npm run test:athletics
-          npm run test:dual-perception
-          npm run test:offline-sync
-          npm run test:feather
-          npm run test:feather-platform
-          npm run test:flm-product
+          set -euo pipefail
+          for task in test:athletics test:dual-perception test:offline-sync test:feather test:feather-platform test:flm-product; do
+            if npm run "$task" > /tmp/athlys-product-test.log 2>&1; then
+              echo "PASS: $task"
+            else
+              echo "::error::FAILED: $task (private details withheld)"
+              exit 1
+            fi
+          done
       - name: Validate mobile and desktop shell dependencies
+        shell: bash
         run: |
-          node --test tests/v5-shell-contract.test.cjs
+          if node --test tests/v5-shell-contract.test.cjs > /tmp/athlys-shell-test.log 2>&1; then
+            echo "PASS: V5 shared shell contracts"
+          else
+            echo "::error::FAILED: V5 shared shell contracts (private details withheld)"
+            exit 1
+          fi
       - name: Mark product checks complete
         run: echo "Private source tests completed on ephemeral runner; no source or athlete information uploaded as artifacts."
