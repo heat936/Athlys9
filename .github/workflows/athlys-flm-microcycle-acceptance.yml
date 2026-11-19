@@ -1,0 +1,43 @@
+name: Athlys FLM microcycle compiler — offline acceptance
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/athlys-flm-microcycle-acceptance.yml'
+permissions:
+  contents: read
+concurrency:
+  group: athlys-flm-microcycle-compiler
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact private Athlys2 feature commit
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 6339ad4704ef4b8591dd46495ea80d61185a0da2
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Verify Feather local compiler and application regression suite
+        run: npm test
+      - name: Verify entire release contract
+        run: npm run verify:release
+      - name: Build platform web assets
+        run: npm run build:web
+      - name: Verify offline compiler available for Capacitor packaging
+        run: |
+          test -s web/feather-training-metrics.js
+          test -s web/native-app.bundle.js
+          test -s web/supabase-client.bundle.js
+          grep -q 'feather-training-metrics.js' web/mobile.html
+          grep -q 'feather-training-metrics.js' web/index.html
+          grep -q 'feather-training-metrics.js' web/sw.js
