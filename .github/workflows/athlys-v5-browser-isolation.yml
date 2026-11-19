@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: 5b93733c8d5da6fe6d3932d013fe2941074454fa
+          ref: 9609c1d4dba438879ba22233433cc2d64a95bc6f
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -95,6 +95,15 @@ jobs:
                   elif 'strict mode' in error: category='SELECTOR'
               stage='AFTER_NAV' if row.get('navigation')=='4 tabs OK' else 'BEFORE_NAV'
               print(f'::error::MOBILE_{role.upper()}_{width}_{stage}_{category}')
+              if row.get('mock_js_error_first_line') and role == 'athlete':
+                  snippet=str(row['mock_js_error_first_line'])
+                  snippet=re.sub(r'https?://\S+','[url]',snippet)
+                  snippet=re.sub(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+','[email]',snippet)
+                  snippet=re.sub(r'[0-9a-fA-F]{8}-[0-9a-fA-F-]{27,}','[id]',snippet)
+                  snippet=re.sub(r"['\"][^'\"]+['\"]",'[property]',snippet)
+                  snippet=re.sub(r'[^A-Za-z0-9\s_:.,()\[\]?-]','?',snippet)[:100]
+                  print('::error::SYNTHETIC_JS_DIAGNOSTIC_'+snippet)
+
           if not failed: print('::error::MOBILE_UNPARSEABLE_RESULT')
           PY
             exit 1
