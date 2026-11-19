@@ -1,0 +1,62 @@
+name: Athlys V6 — private product acceptance
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-v6-product-validation.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  v6:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 6204b48513c123935cde796c61ff050b1499b311
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate source syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in web/app.js web/training-intelligence.js web/athletics-engine-v2.js web/product-v6.js web/dual-perception.js web/feather-runtime.js web/sw.js; do
+            if ! node --check "$file" >/tmp/v6-syntax.log 2>&1; then
+              echo "::error::SYNTAX_FAILED_$(basename "$file")";exit 1
+            fi
+          done
+          echo "PASS: all V6 JS syntax"
+      - name: Run isolated private functional tests with synthetic data only
+        shell: bash
+        run: |
+          set -euo pipefail
+          for task in test:local-intelligence test:feather test:feather-platform test:athletics test:athletics-v2 test:dual-perception test:offline-sync test:flm-product test:v6-intelligence test:v6-product; do
+            if npm run "$task" >/tmp/v6-suite.log 2>&1; then
+              echo "PASS: $task"
+            else
+              echo "::error::FAILED: $task (private details withheld)"
+              exit 1
+            fi
+          done
+          if node --test tests/v5-shell-contract.test.cjs >/tmp/v6-shell.log 2>&1; then
+            echo "PASS: V6 browser shell contracts"
+          else
+            echo "::error::FAILED: V6 shell contracts"
+            exit 1
+          fi
+      - name: Build web application with V6 modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! (npm install --no-audit --no-fund && npm run build:web) >/tmp/v6-build.log 2>&1; then
+            echo "::error::V6_WEB_BUILD_FAILED (private logs withheld)"
+            exit 1
+          fi
+          for f in training-intelligence.js athletics-engine-v2.js product-v6.js; do
+            test -s "web/$f"
+          done
+          echo "PASS: V6 shared web assembly"
