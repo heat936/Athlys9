@@ -20,9 +20,12 @@ jobs:
             if [ "$code" != 200 ]; then echo "::error::V6_WEB_RESOURCE_BAD_HTTP path=$path status=$code"; exit 1; fi
             echo "PASS: PWA resource $path"
           done
-          curl -fsSL --max-time 25 https://athlys-v6-pwa.vercel.app/app.js | grep -q "Data Fusion" || { echo "::error::V6_DATA_FUSION_UI_ABSENT"; exit 1; }
-          curl -fsSL --max-time 25 https://athlys-v6-pwa.vercel.app/club-app.html | grep -q "Athlys Club" || { echo "::error::V6_CLUB_HTML_ABSENT"; exit 1; }
-          curl -fsSL --max-time 25 https://athlys-v6-pwa.vercel.app/training-intelligence.js | grep -q "AthlysTrainingIntelligence" || { echo "::error::V6_INTELLIGENCE_ABSENT"; exit 1; }
+          curl -fsSL --max-time 25 https://athlys-v6-pwa.vercel.app/app.js -o /tmp/athlys-v6-live-app.js
+          curl -fsSL --max-time 25 https://athlys-v6-pwa.vercel.app/club-app.html -o /tmp/athlys-v6-live-club.html
+          curl -fsSL --max-time 25 https://athlys-v6-pwa.vercel.app/training-intelligence.js -o /tmp/athlys-v6-live-intelligence.js
+          grep -q "Data Fusion" /tmp/athlys-v6-live-app.js || { echo "::error::V6_DATA_FUSION_UI_ABSENT"; exit 1; }
+          grep -q "Athlys Club" /tmp/athlys-v6-live-club.html || { echo "::error::V6_CLUB_HTML_ABSENT"; exit 1; }
+          grep -q "AthlysTrainingIntelligence" /tmp/athlys-v6-live-intelligence.js || { echo "::error::V6_INTELLIGENCE_ABSENT"; exit 1; }
           echo "PASS: production V6 PWA live content contracts"
       - name: Check standalone V6 Club deployment
         shell: bash
@@ -33,5 +36,6 @@ jobs:
             if [ "$code" != 200 ]; then echo "::error::V6_CLUB_RESOURCE_BAD_HTTP path=$path status=$code"; exit 1; fi
             echo "PASS: Club resource $path"
           done
-          curl -fsSL --max-time 25 https://athlys-v6-club.vercel.app/ | grep -q "Athlys Club" || { echo "::error::CLUB_ROOT_NOT_CORRECT"; exit 1; }
+          curl -fsSL --max-time 25 https://athlys-v6-club.vercel.app/ -o /tmp/athlys-v6-club-root.html
+          grep -q "Athlys Club" /tmp/athlys-v6-club-root.html || { echo "::error::CLUB_ROOT_NOT_CORRECT"; exit 1; }
           echo "PASS: standalone Club root and runtime"
