@@ -10,15 +10,11 @@ jobs:
   diagnose:
     runs-on: ubuntu-24.04
     timeout-minutes: 26
-    strategy:
-      fail-fast: false
-      matrix:
-        revision: [baseline, candidate]
     steps:
       - uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: ${{ matrix.revision == 'baseline' && 'redesign/charter-only-v4-20261118' || 'b5b24777a5ff7c569192aa25f57942b7de1a3707' }}
+          ref: ed0b42e0bdea4bfa256190610f0c2a11189b6dfc
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -80,6 +76,10 @@ jobs:
               if not isinstance(width,int) or width not in (360,393,768): width=0
               error=str(row.get('error','')).lower()
               category='OTHER'
+              for marker in ['ATHLETE_FEELING_DIAL_MISSING','ATHLETE_CHECKIN_DIALOG_MISSING','ATHLETE_MODAL_TITLE_MISSING','ATHLETE_MODAL_BEHIND_NAV','ATHLETE_MODAL_FAILED_TO_CLOSE']:
+                  if marker.lower() in error:
+                      category=marker
+                      break
               for name,patterns in tests.items():
                   if any(v.lower() in error for v in patterns):
                       category=name
