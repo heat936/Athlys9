@@ -1,0 +1,27 @@
+name: Duo Bridge public runner smoke test
+on:
+  push:
+    branches:
+      - duo/public-runner-20261119
+    paths:
+      - .github/workflows/duo-public-runner.yml
+      - duo-bridge-public/**
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  runner-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify public runner
+        run: |
+          set -eu
+          echo "Duo Bridge public runner available"
+          echo "Repository: $GITHUB_REPOSITORY"
+          echo "Event: $GITHUB_EVENT_NAME"
+          echo "Runner: $RUNNER_NAME"
+          python3 - <<'PY'
+          import json, os
+          print(json.dumps({"ok":True,"repository":os.environ["GITHUB_REPOSITORY"],"event":os.environ["GITHUB_EVENT_NAME"]}))
+          PY
