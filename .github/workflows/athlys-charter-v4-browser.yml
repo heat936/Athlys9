@@ -47,6 +47,8 @@ jobs:
         run: |
           npm install --no-audit --no-fund
           npm run build:web
+          npm run test:athletics
+          node --check web/athletics-fields.js
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
