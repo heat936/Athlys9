@@ -77,7 +77,7 @@ jobs:
               error=str(row.get('error','')).lower()
               category='OTHER'
               import re
-              detail=re.search(r'ATHLETE_CHECKIN_DIALOG_MISSING_BACKDROP_([01])_FORMS_([0-9])_BODY_([01])_JS_([0-9])',error)
+              detail=re.search(r'ATHLETE_CHECKIN_DIALOG_MISSING_BACKDROP_([01])_FORMS_([0-9])_BODY_([01])_JS_([0-9])',error.upper())
               if detail:
                   category='MODAL_STATE_'+('_'.join(detail.groups()))
               for marker in ['ATHLETE_FEELING_DIAL_MISSING','ATHLETE_MODAL_TITLE_MISSING','ATHLETE_MODAL_BEHIND_NAV','ATHLETE_MODAL_FAILED_TO_CLOSE']:
