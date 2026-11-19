@@ -57,4 +57,4 @@ jobs:
           PY
             exit 1
           fi
-          echo "PASS: Ephemeral PostgreSQL 17 DDL, coach/athlete RLS, exact training linkage"
+          echo "PASS: Ephemeral PostgreSQL 17 DDL, cross-athlete write isolation, readable observations and event linkage"
