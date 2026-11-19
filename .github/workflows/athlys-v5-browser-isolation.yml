@@ -66,7 +66,12 @@ jobs:
               if any(value.lower() in text.lower() for value in patterns):
                   print('::error::MOBILE_' + name)
                   break
-          else: print('::error::MOBILE_OTHER_ERROR')
+          else:
+              import re
+              match=re.findall(r'(?m)^([A-Za-z][A-Za-z0-9_.]*(?:Error|Exception)):',text)
+              allowed={'Error','RuntimeError','ValueError','TypeError','KeyError','AttributeError','TimeoutError','AssertionError','TargetClosedError','PlaywrightError','OSError'}
+              category=match[-1] if match and match[-1] in allowed else 'Unknown'
+              print('::error::MOBILE_OTHER_' + category)
           PY
             exit 1
           fi
