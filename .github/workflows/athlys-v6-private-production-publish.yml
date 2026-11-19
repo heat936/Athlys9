@@ -100,9 +100,9 @@ jobs:
             s=s.replace("compileOptions {","compileOptions {\n        coreLibraryDesugaringEnabled true",1)
           if "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:" not in s:
             s=s.replace("dependencies {","dependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'",1)
-          s,n=re.subn(r"(?m)^(\\s*versionCode\\s+)\\d+\\s*$",r"\\g<1>60000",s,count=1)
+          s,n=re.subn(r"(?m)^(\s*versionCode\s+)\d+\s*$",r"\g<1>60000",s,count=1)
           if n!=1:raise SystemExit("ANDROID_VERSION_CODE_NOT_FOUND")
-          s,n=re.subn(r'(?m)^(\\s*versionName\\s+)"[^"]+"',r'\\g<1>"6.0.0"',s,count=1)
+          s,n=re.subn(r'(?m)^(\s*versionName\s+)"[^"]+"',r'\g<1>"6.0.0"',s,count=1)
           if n!=1:raise SystemExit("ANDROID_VERSION_NAME_NOT_FOUND")
           p.write_text(s)
           v=Path("android/variables.gradle")
