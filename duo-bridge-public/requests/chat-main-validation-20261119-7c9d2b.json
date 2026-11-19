@@ -1,0 +1,4 @@
+{
+  "mode": "free_local",
+  "task": "On a public fictional athletics training form, propose three test cases for recording a shot put workout, including an invalid distance. Return concise, testable examples."
+}
