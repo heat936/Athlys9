@@ -1,0 +1,69 @@
+name: Athlys charter Windows — debug installers
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/athlys-charter-windows-build.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-2022
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [desktop, desktop-club]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: d12c4f714188499fef8ee4a329694b352aff1c1b
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - name: Assert pinned source commit
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "d12c4f714188499fef8ee4a329694b352aff1c1b"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Electron packager
+        working-directory: ${{ matrix.app }}
+        run: npm install --no-audit --no-fund
+      - name: Build Windows installer and portable package
+        working-directory: ${{ matrix.app }}
+        shell: pwsh
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          npm run dist
+      - name: Verify packaged official-charter resources and record hashes
+        shell: pwsh
+        run: |
+          $app = "${{ matrix.app }}"
+          $target = Join-Path $app "dist"
+          if (!(Test-Path $target)) { throw "Missing Windows distribution directory" }
+          $exe = Get-ChildItem $target -Filter "*.exe" -File
+          if ($exe.Count -eq 0) { throw "No Windows executable emitted" }
+          $css = Join-Path $app "web/athlys-charter-reset.css"
+          if ($app -eq "desktop-club") { $css = Join-Path $app "web/athlys-club-charter.css" }
+          if (!(Test-Path $css)) { throw "Official charter absent from copied web directory" }
+          $list = foreach ($item in $exe) {
+            [PSCustomObject]@{File=$item.Name;SHA256=(Get-FileHash $item.FullName -Algorithm SHA256).Hash}
+          }
+          $list | ConvertTo-Json -Depth 3 | Set-Content (Join-Path $target "sha256.json")
+          Write-Output "Verified $($exe.Count) Windows outputs for $app"
+      - name: Upload Windows test packages and checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: athlys-charter-${{ matrix.app }}-windows-test
+          path: |
+            ${{ matrix.app }}/dist/*.exe
+            ${{ matrix.app }}/dist/sha256.json
+          retention-days: 14
+          if-no-files-found: error
