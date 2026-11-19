@@ -62,16 +62,31 @@ jobs:
             'BROWSER_TIMEOUT': ['TimeoutError'],
             'SCRIPT_ASSERTION': ['AssertionError']
           }
-          for name,patterns in tests.items():
-              if any(value.lower() in text.lower() for value in patterns):
-                  print('::error::MOBILE_' + name)
-                  break
-          else:
-              import re
-              match=re.findall(r'(?m)^([A-Za-z][A-Za-z0-9_.]*(?:Error|Exception)):',text)
-              allowed={'Error','RuntimeError','ValueError','TypeError','KeyError','AttributeError','TimeoutError','AssertionError','TargetClosedError','PlaywrightError','OSError'}
-              category=match[-1] if match and match[-1] in allowed else 'Unknown'
-              print('::error::MOBILE_OTHER_' + category)
+          import json
+          try:
+              rows=json.loads(text)
+          except ValueError:
+              rows=[]
+          failed=[x for x in rows if x.get('status')!='pass']
+          allow={'anonymous','athlete','coach'}
+          for row in failed[:3]:
+              role=row.get('role','unknown')
+              if role not in allow: role='unknown'
+              width=row.get('viewport',0)
+              if not isinstance(width,int) or width not in (360,393,768): width=0
+              error=str(row.get('error','')).lower()
+              category='OTHER'
+              for name,patterns in tests.items():
+                  if any(v.lower() in error for v in patterns):
+                      category=name
+                      break
+              if category=='OTHER':
+                  if 'locator.' in error: category='LOCATOR'
+                  elif 'page.' in error: category='PAGE'
+                  elif 'net::' in error: category='NETWORK'
+                  elif 'strict mode' in error: category='SELECTOR'
+              print(f'::error::MOBILE_{role.upper()}_{width}_{category}')
+          if not failed: print('::error::MOBILE_UNPARSEABLE_RESULT')
           PY
             exit 1
           fi
