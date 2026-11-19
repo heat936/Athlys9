@@ -75,6 +75,8 @@ jobs:
       - name: Verify FLM, charter and session security
         run: |
           node --check web/app.js
+          node --check web/athletics-fields.js
+          npm run test:athletics
           npm run verify:release
           node --test tests/athlys-release-gates.test.cjs tests/athlys-session-isolation.test.cjs tests/athlys-club-session-boundary.test.cjs tests/security-grants-team-rls.test.mjs
       - name: Build WebView-compatible runtime
@@ -129,6 +131,7 @@ jobs:
           unzip -Z1 "$APK" | grep -q 'assets/public/fonts/inter-var.woff2'
           unzip -Z1 "$APK" | grep -q 'assets/public/fonts/inter-latin-ext-var.woff2'
           unzip -Z1 "$APK" | grep -q 'assets/public/feather-runtime.js'
+          unzip -Z1 "$APK" | grep -q 'assets/public/athletics-fields.js'
           ! unzip -Z1 "$APK" | grep -q 'assets/public/athlys-ui-v3.css'
           test -s athlys-build-provenance.json
           sha256sum "$APK" > athlys-charter-v4.sha256
