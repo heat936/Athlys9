@@ -38,6 +38,7 @@ jobs:
           npm run test:offline-sync
           npm run test:feather
           npm run test:feather-platform
+          npm run test:flm-product
       - name: Validate mobile and desktop shell dependencies
         run: |
           node --test tests/v5-shell-contract.test.cjs
