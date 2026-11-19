@@ -1,0 +1,29 @@
+name: Duo Bridge Copilot CLI direct diagnostic
+on:
+  push:
+    branches:
+      - duo/copilot-cli-direct-20261119
+    paths:
+      - .github/workflows/duo-copilot-direct.yml
+permissions:
+  contents: read
+  copilot-requests: write
+jobs:
+  direct-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Copilot CLI
+        run: npm install -g @github/copilot
+      - name: Test direct Copilot CLI access
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT || github.token }}
+          GH_TOKEN: ${{ secrets.COPILOT_PAT || github.token }}
+        run: |
+          set -euo pipefail
+          copilot -p "Return exactly the word READY. No tools." -s --no-ask-user --model gpt-4.1 > model-response.txt
+          test -s model-response.txt
+          cat model-response.txt
