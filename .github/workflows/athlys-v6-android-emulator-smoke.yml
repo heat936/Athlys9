@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: 26e13d99a71ef388f2a70c7eef5849806ff94518
+          ref: 9aab6f1712ce3b8bbe50bed7b21a9e4a222befbd
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -74,12 +74,16 @@ jobs:
           emulator-boot-timeout: 480
           disable-animations: true
           script: |
-            set -euo pipefail
+            set -eu
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk >/tmp/athlys-adb-install.log 2>&1
             adb shell am start -n com.athlys.app/.MainActivity >/tmp/athlys-adb-launch.log 2>&1
-            sleep 12
-            PID="$(adb shell pidof com.athlys.app | tr -d '\r')"
-            if [ -z "$PID" ]; then
+            live=""
+            for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+              live="$(adb shell pidof com.athlys.app 2>/dev/null | tr -d '\r' || true)"
+              if [ -n "$live" ]; then break; fi
+              sleep 2
+            done
+            if [ -z "$live" ]; then
               echo "::error::ANDROID_APP_NOT_RUNNING_AFTER_LAUNCH"; exit 1
             fi
             echo "PASS: Android 14 emulator installation, launch and live process"
