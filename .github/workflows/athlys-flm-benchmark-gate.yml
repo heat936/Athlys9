@@ -1,0 +1,40 @@
+name: Athlys FLM benchmark gate — private source pinned
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/athlys-flm-benchmark-gate.yml']
+permissions:
+  contents: read
+concurrency:
+  group: flm-benchmark-gate
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout private Athlys2 pinned commit (never persisted)
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 8f50d8bda0554279c5b20c9f081b3357d5e00459
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test gateway and Feather routing
+        working-directory: services/athlys-remote-ai
+        run: |
+          npm ci --no-audit --no-fund
+          npm run verify
+      - name: Synthetic-only comparative benchmark
+        working-directory: services/athlys-remote-ai
+        run: npm run benchmark:feather -- --iterations=200
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run entire ML package test suite
+        working-directory: ml
+        run: python -m unittest discover -s athlys_intelligence/tests -v
