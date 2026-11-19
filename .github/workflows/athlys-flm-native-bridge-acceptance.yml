@@ -1,0 +1,122 @@
+name: Athlys FLM Native ONNX — Capacitor and Electron acceptance
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/athlys-flm-native-bridge-acceptance.yml'
+permissions:
+  contents: read
+concurrency:
+  group: athlys-flm-native-integration
+  cancel-in-progress: true
+jobs:
+  client:
+    name: Feather assistant + Web/PWA
+    runs-on: ubuntu-24.04
+    timeout-minutes: 17
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: bf8b69bcd0b11352937bc815d6d54c8610a9188c
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install root project and local Capacitor plugin
+        run: npm install --no-audit --no-fund
+      - name: Run full client and Feather release verification
+        run: npm run verify:release
+      - name: Compile Web and Capacitor bundles
+        run: npm run build:web
+      - name: Verify native bridge included before Feather runtime
+        run: |
+          grep -q feather-native-intent.js web/index.html
+          grep -q feather-native-intent.js web/mobile.html
+          grep -q feather-native-intent.js web/sw.js
+          grep -q 'registerPlugin' web/native-app.js
+  electron:
+    name: Electron ONNX native — ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: bf8b69bcd0b11352937bc815d6d54c8610a9188c
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Generate synthetic-only ONNX model fixture
+        shell: bash
+        run: |
+          python -m pip install numpy==2.2.6 onnx==1.20.0 onnxruntime==1.23.2
+          cd ml
+          python -m athlys_intelligence.onnx_parity --output-dir reports/onnx --iterations 30
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Electron ONNX Runtime Node dependency
+        working-directory: desktop
+        run: npm install --no-audit --no-fund
+      - name: Execute native Electron inference tests with synthetic fixture
+        working-directory: desktop
+        env:
+          FEATHER_TEST_ONNX: ${{ github.workspace }}/ml/reports/onnx/synthetic-router.onnx
+        run: npm run check
+      - name: Confirm packaged bridge sources are copied
+        working-directory: desktop
+        run: node copy-web.cjs
+  capacitor-android:
+    name: Capacitor 7 plugin Gradle/Android build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: bf8b69bcd0b11352937bc815d6d54c8610a9188c
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Use installed Android SDK
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Install Capacitor app and Feather native plugin
+        run: |
+          npm install --no-audit --no-fund
+          npm run build:web
+      - name: Generate Android Capacitor app and sync plugin
+        run: |
+          npx cap add android
+          npm run android:sync
+          grep -q athlys-feather-onnx android/capacitor.settings.gradle
+      - name: Compile actual Capacitor Android debug app including ONNX plugin
+        working-directory: android
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify Android debug APK
+        run: test -s android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Publish build verification artifact
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: flm-native-capacitor-debug-test
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
