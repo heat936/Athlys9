@@ -1,0 +1,36 @@
+name: Duo Bridge — direct provider API preflight
+on:
+  push:
+    branches: [duo/direct-provider-apis-20261119]
+    paths:
+      - .github/workflows/duo-direct-providers.yml
+      - duo-bridge-public/**
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  direct-provider-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_MODEL: ${{ vars.DUO_OPENAI_MODEL || 'gpt-4.1' }}
+      ANTHROPIC_MODEL: ${{ vars.DUO_ANTHROPIC_MODEL || 'claude-sonnet-4-6' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify direct-provider configuration
+        id: preflight
+        shell: bash
+        run: |
+          if [ -z "$OPENAI_API_KEY" ] || [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "## Duo Bridge: not activated" >> "$GITHUB_STEP_SUMMARY"
+            echo "Missing authorized API key(s). No model calls were made. Runner operational; no Copilot CLI required." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "Both provider credentials are configured (values not exposed)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Run synthetic OpenAI then Claude handshake
+        if: steps.preflight.outputs.enabled == 'true'
+        run: python3 duo-bridge-public/direct_provider_test.py
