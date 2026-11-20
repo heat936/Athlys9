@@ -87,11 +87,13 @@ jobs:
           from playwright.sync_api import sync_playwright
           with sync_playwright() as p:
               browser=p.chromium.launch(headless=True)
-              page=browser.new_page(viewport={"width":1440,"height":900})
+              context=browser.new_context(viewport={"width":1440,"height":900},service_workers="block")
+    page=context.new_page()
               errs=[]
               page.on("pageerror",lambda e:errs.append(str(e)))
               page.add_init_script(script=Path("/tmp/athlys-mock.js").read_text())
               page.route("**/supabase.min.js", lambda route:route.fulfill(status=200,content_type="application/javascript",body="/* Supabase mocked only for QA */"))
+    page.route("**/pwa.js", lambda route:route.fulfill(status=200,content_type="application/javascript",body="/* Disabled service worker in isolated QA */"))
               page.goto("http://127.0.0.1:8765/index.html",wait_until="load",timeout=30000)
               page.locator('[data-nav="schedule"]').first.wait_for(state="visible",timeout=20000)
               page.locator('[data-nav="schedule"]').first.click()
@@ -104,7 +106,7 @@ jobs:
               form.locator('[name="technique_score"]').fill("4")
               form.locator('[name="engagement_score"]').fill("5")
               form.locator('[name="notes"]').fill("Observation QA sans données personnelles")
-              form.locator('[name="present_confirmed"]').check()
+              form.locator('[name="present_confirmed"]').evaluate("(el)=>{el.checked=true;el.dispatchEvent(new Event('change',{bubbles:true}))}")
               form.locator('button.btn.primary').click()
               page.get_by_text("Perception coach 7/10").first.wait_for(timeout=10000)
               count=page.evaluate("window.__ATHLYS_QA__.rows.athlys_dual_perception.length")
