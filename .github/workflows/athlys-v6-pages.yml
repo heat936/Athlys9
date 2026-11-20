@@ -1,0 +1,100 @@
+name: Athlys V6 workspace — free GitHub Pages deployment
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-v6-pages.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: athlys-v6-pages
+  cancel-in-progress: false
+jobs:
+  verify-and-publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout V6 source from private repository
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: ops/v6-pwa-deploy-payload-20261119
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+          path: app
+      - name: Checkout unified workspace additions from private main
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: df38b49afa51ada3896f5f73cfc28550a49c5156
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+          path: workspace
+      - name: Overlay V6-compatible workspace controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp workspace/web/unified-workspace.js app/web/unified-workspace.js
+          cp workspace/web/unified-workspace.css app/web/unified-workspace.css
+          python3 - <<'PY'
+          from pathlib import Path
+          for filename in ('index.html','club-app.html'):
+              p=Path('app/web')/filename
+              html=p.read_text()
+              if 'unified-workspace.css' not in html:
+                  html=html.replace('</head>','<link rel="stylesheet" href="/unified-workspace.css?v=20261120"></head>',1)
+              if 'unified-workspace.js' not in html:
+                  html=html.replace('</body>','<script defer src="/unified-workspace.js?v=20261120"></script></body>',1)
+              p.write_text(html)
+          PY
+          test -s app/web/product-v6.js
+          node --check app/web/unified-workspace.js
+          node --check app/web/app.js
+          node --check app/web/club.js
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build V6 with original dependencies
+        working-directory: app
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run build:web
+      - name: Prepare public frontend for subpath hosting
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p public
+          cp -R app/web/. public/
+          # GitHub Pages project URLs live under /Athlys9; rewrite static-root URLs.
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path('public')
+          for path in root.rglob('*'):
+              if path.suffix not in {'.html','.css','.js','.webmanifest','.json'}: continue
+              if path.name in {'app-config.js','supabase-client.bundle.js'}: continue
+              try: text=path.read_text(encoding='utf-8')
+              except (UnicodeError,OSError): continue
+              # Only rewrite URL strings that point to local assets or routes.
+              text=re.sub(r'(?<=["\'])/(?!/|Athlys9/|https?:)(?=[\w.-])','/Athlys9/',text)
+              path.write_text(text,encoding='utf-8')
+          PY
+          printf '<!doctype html><html lang="fr"><meta charset="utf-8"><title>Athlys V6</title><meta http-equiv="refresh" content="0;url=/Athlys9/index.html"><a href="/Athlys9/index.html">Athlys V6</a></html>' > public/404.html
+          test -s public/index.html
+          test -s public/club-app.html
+          test -s public/unified-workspace.js
+          test -s public/product-v6.js
+          git -C app rev-parse HEAD | tee /tmp/athlys-v6-source-sha.txt
+          echo "No repository source tree or private Git history is published; only static frontend assets."
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+      - id: deployment
+        uses: actions/deploy-pages@v4
