@@ -11,12 +11,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 14
     env:
-      EXPECTED_SHA: b4498aba94cf84cd971d23acc3ae45c617b50c3a
+      EXPECTED_SHA: 717352b76800ad960a41fc4c33e3e81008602b11
     steps:
       - uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: b4498aba94cf84cd971d23acc3ae45c617b50c3a
+          ref: 717352b76800ad960a41fc4c33e3e81008602b11
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -28,7 +28,6 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           npm install --no-audit --no-fund >/tmp/qa-npm.log 2>&1
-          npm install --no-save --no-audit --no-fund bcryptjs@2.4.3 >/tmp/qa-bcrypt.log 2>&1
           node tests/athlys-real-supabase-auth-qa.cjs
       - name: Archive status-only results (no tokens or credentials)
         if: always()
