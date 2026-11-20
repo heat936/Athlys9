@@ -55,7 +55,8 @@ jobs:
             echo "KVM hardware acceleration available"
           else
             echo "accel=off" >> "$GITHUB_OUTPUT"
-            echo "::warning::KVM unavailable; attempt emulator with software acceleration"
+            echo "ANDROID_I_WANT_MY_TCG=yes" >> "$GITHUB_ENV"
+            echo "::warning::KVM unavailable; Android emulator will use explicit TCG software emulation"
           fi
       - name: Create single-shell emulator smoke script
         shell: bash
