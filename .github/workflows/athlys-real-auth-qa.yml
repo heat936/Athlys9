@@ -1,0 +1,39 @@
+name: Athlys Field Beta — real Supabase Auth JWT QA
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/athlys-real-auth-qa.yml']
+permissions:
+  contents: read
+jobs:
+  auth:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    env:
+      EXPECTED_SHA: af3cb843f0d852bae137ddec3ea512523c494fb8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: af3cb843f0d852bae137ddec3ea512523c494fb8
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Generate ephemeral test credentials and sign in through real GoTrue
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          npm install --no-audit --no-fund >/tmp/qa-npm.log 2>&1
+          node tests/athlys-real-supabase-auth-qa.cjs
+      - name: Archive status-only results (no tokens or credentials)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: athlys-real-supabase-auth-qa-results
+          retention-days: 7
+          if-no-files-found: ignore
+          path: qa-evidence/real-auth-results.json
