@@ -1,0 +1,106 @@
+name: Athlys V6 unified workspace — Windows x64 installers
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/athlys-v6-windows.yml
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 55
+    steps:
+      - name: Fetch Athlys V6 private source
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: ops/v6-pwa-deploy-payload-20261119
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+          path: app
+      - name: Fetch unified workspace
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: df38b49afa51ada3896f5f73cfc28550a49c5156
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+          path: workspace
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Overlay workspace into V6 entrypoints
+        shell: pwsh
+        run: |
+          Copy-Item workspace/web/unified-workspace.css app/web/unified-workspace.css
+          Copy-Item workspace/web/unified-workspace.js app/web/unified-workspace.js
+          @'
+          from pathlib import Path
+          for file in ('index.html','club-app.html'):
+              p=Path('app/web')/file
+              s=p.read_text(encoding='utf-8')
+              s=s.replace('</head>','<link rel="stylesheet" href="/unified-workspace.css?v=20261120"></head>',1)
+              s=s.replace('</body>','<script defer src="/unified-workspace.js?v=20261120"></script></body>',1)
+              p.write_text(s,encoding='utf-8')
+          '@ | python -
+          node --check app/web/unified-workspace.js
+          node --check app/web/app.js
+          node --check app/web/club.js
+      - name: Test original V6 source and build Web
+        working-directory: app
+        shell: pwsh
+        run: |
+          npm install --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build:web
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package Athlys Windows x64
+        shell: pwsh
+        run: |
+          Push-Location app/desktop
+          npm install --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run dist
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+      - name: Package Athlys Club Windows x64
+        shell: pwsh
+        run: |
+          Push-Location app/desktop-club
+          npm install --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node copy-web.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item ../web/unified-workspace.css web/unified-workspace.css
+          Copy-Item ../web/unified-workspace.js web/unified-workspace.js
+          if (!(Test-Path web/unified-workspace.js)) { throw 'Missing unified workspace JS in Club package' }
+          npx electron-builder --win nsis portable --x64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+      - name: Verify release artifacts and provenance
+        shell: pwsh
+        run: |
+          $exe1=Get-ChildItem app/desktop/dist -Filter *.exe
+          $exe2=Get-ChildItem app/desktop-club/dist -Filter *.exe
+          if (!$exe1 -or !$exe2) { throw 'Windows installers missing' }
+          mkdir windows-artifacts -ErrorAction SilentlyContinue
+          $exe1 | ForEach-Object { Copy-Item $_.FullName windows-artifacts/ }
+          $exe2 | ForEach-Object { Copy-Item $_.FullName windows-artifacts/ }
+          Get-ChildItem windows-artifacts/*.exe | Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash)  $(Split-Path $_.Path -Leaf)" } | Set-Content windows-artifacts/SHA256SUMS.txt
+          "V6 source: $(git -C app rev-parse HEAD)" | Set-Content windows-artifacts/PROVENANCE.txt
+          "Workspace source: $(git -C workspace rev-parse HEAD)" | Add-Content windows-artifacts/PROVENANCE.txt
+          "Unsigned Windows x64 test builds. Test before distribution." | Add-Content windows-artifacts/PROVENANCE.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: athlys-v6-unified-windows-x64-unsigned
+          path: windows-artifacts/
+          if-no-files-found: error
+          retention-days: 14
