@@ -1,0 +1,74 @@
+name: Athlys production CSS visibility diagnostic
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/athlys-style-diagnostic.yml
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Inspect live domain response and CSS
+        shell: bash
+        run: |
+          set -euo pipefail
+          for host in athlys-v6-pwa.vercel.app athlys-v6-club.vercel.app; do
+            echo "::group::$host"
+            for path in / /index.html /mobile.html /athlys-visual-charter-v1.css /unified-workspace.css /athlys-brand-tokens-v4.css /sw.js; do
+              echo "Request: https://$host$path"
+              curl -sS -L --max-time 20 -o /tmp/athlys-response -w "HTTP=%{http_code} TYPE=%{content_type} LENGTH=%{size_download} REDIRECT=%{url_effective}\n" "https://$host$path" || true
+              echo "first120: $(head -c 120 /tmp/athlys-response | tr '\n' ' ')"
+              if [ "$path" = "/" ] || [ "$path" = "/index.html" ] || [ "$path" = "/mobile.html" ]; then
+                grep -oE 'href="[^"]+\.css[^"]*"' /tmp/athlys-response || true
+                grep -oE 'athlys-visual-charter-v1\.css[^"< ]*' /tmp/athlys-response || true
+              fi
+            done
+            echo "::endgroup::"
+          done
+      - name: Download browser and capture computed visual checks
+        run: |
+          mkdir -p /tmp/athlys-qa
+          cd /tmp/athlys-qa
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund playwright@1.56.1
+          npx playwright install --with-deps chromium
+          cat > probe.cjs <<'JS'
+          const { chromium } = require('playwright');
+          (async () => {
+            const browser = await chromium.launch({headless:true});
+            for (const host of ['athlys-v6-pwa.vercel.app','athlys-v6-club.vercel.app']) {
+              for (const screen of [{name:'desktop',width:1440,height:900},{name:'mobile',width:390,height:844}]) {
+                const page=await browser.newPage({viewport:screen,deviceScaleFactor:1});
+                const failures=[];
+                page.on('response',res=>{if(res.status()>=400)failures.push(res.status()+' '+res.url())});
+                const url='https://'+host+'/';
+                try {
+                  await page.goto(url,{waitUntil:'domcontentloaded',timeout:25000});
+                  await page.waitForTimeout(2300);
+                  const d=await page.evaluate(()=>{
+                    const el=document.querySelector('#athlys,#club-app')||document.body;
+                    const c=getComputedStyle(el),b=getComputedStyle(document.body);
+                    const sheets=[...document.styleSheets].map(x=>({url:x.href,disabled:x.disabled}));
+                    const assets=performance.getEntriesByType('resource').filter(x=>/athlys-visual-charter|unified-workspace|athlys-brand-tokens/.test(x.name)).map(x=>({name:x.name,duration:x.duration,bytes:x.transferSize}));
+                    return {url:location.href,title:document.title,htmlStart:document.documentElement.outerHTML.slice(0,300),sheets,assets,bodyBackground:b.backgroundColor,appBackground:c.backgroundColor,appText:c.color,theme:document.documentElement.dataset.theme,serviceWorker:!!navigator.serviceWorker?.controller,bodySnippet:document.body.innerText.slice(0,320)};
+                  });
+                  await page.screenshot({path:'/tmp/athlys-qa/'+host+'-'+screen.name+'.png',fullPage:false});
+                  console.log(JSON.stringify({host,screen:screen.name,...d,failures}));
+                }catch(e){console.log(JSON.stringify({host,screen:screen.name,error:String(e),failures}))}
+                await page.close();
+              }
+            }
+            await browser.close();
+          })().catch(e=>{console.error(e);process.exit(1)});
+          JS
+          node probe.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: athlys-production-visual-diagnostic
+          path: /tmp/athlys-qa/*.png
+          retention-days: 3
