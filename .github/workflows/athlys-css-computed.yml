@@ -37,7 +37,7 @@ jobs:
           })().catch(e=>{console.error(e);process.exit(1)});
           JS
           node probe.cjs
-          echo 'Validated live production computed styles after visual contrast correction'
+          echo 'Validated live official charter light-theme auth after v4 CSS refresh'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
