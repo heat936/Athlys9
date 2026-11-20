@@ -186,6 +186,23 @@ jobs:
               assert not athlete_errors, athlete_errors
               athlete_page.screenshot(path="qa-evidence/athlete-offline-confirmed-checkin.png",full_page=True)
               print("PASS athlete FLM assistant checkin: confirmed offline UI action persisted in IndexedDB queue")
+              athlete_context.set_offline(False)
+              retry_form=athlete_page.locator('form[data-form="assistant"]')
+              retry_form.locator('[name="prompt"]').fill("Relance la synchronisation")
+              retry_form.locator('button.btn.primary').first.click()
+              athlete_page.locator('.assistant-pending').wait_for(state="visible",timeout=10000)
+              athlete_page.locator('[data-action="assistant-confirm"]').click()
+              athlete_page.get_by_text("Synchronisation vérifiée",exact=False).first.wait_for(timeout=10000)
+              sync=athlete_page.evaluate("""async () => ({
+                queue:await window.AthlysOfflineStore.count(window.__ATHLYS_QA__.athlete),
+                stored:window.__ATHLYS_QA__.rows.athlete_checkins || []
+              })""")
+              assert sync["queue"]==0, sync
+              assert len(sync["stored"])==1 and sync["stored"][0]["feeling"]==4, sync
+              assert sync["stored"][0]["athlete_id"]==pending[0]["athlete_id"],sync
+              assert not athlete_errors, athlete_errors
+              athlete_page.screenshot(path="qa-evidence/athlete-synced-confirmed-checkin.png",full_page=True)
+              print("PASS athlete FLM confirmed sync: queued offline checkin transferred to simulated backend after reconnection")
               browser.close()
           PY
           python3 /tmp/test-athlys-ui.py
