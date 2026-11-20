@@ -27,8 +27,7 @@ jobs:
           APK="$(find candidate -name app-debug.apk -type f -print -quit)"
           test -n "$APK"
           test -s "$APK"
-          sha256sum -c candidate/candidate-android.sha256
-          sha256sum -c candidate/candidate-provenance.sha256
+          (cd candidate && sha256sum -c candidate-android.sha256 && sha256sum -c candidate-provenance.sha256)
           python3 - <<'PY'
           import json
           from pathlib import Path
