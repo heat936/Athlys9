@@ -138,6 +138,17 @@ jobs:
               Path("qa-evidence/heading-computed.json").write_text(json.dumps(diagnostic,indent=2,ensure_ascii=False))
               print("HEADING_DIAGNOSTIC",json.dumps(diagnostic,ensure_ascii=False))
               page.screenshot(path="qa-evidence/coach-review.png",full_page=True)
+              page.locator('.assistant-launch').click()
+              assistant_form=page.locator('form[data-form="assistant"]')
+              assistant_form.wait_for(state="visible",timeout=8000)
+              assistant_form.locator('[name="prompt"]').fill("Pourquoi ma charge augmente ?")
+              assistant_form.locator('button[type="submit"], button.btn.primary').first.click()
+              page.get_by_text("Je n'ai pas de séance datée et complète",exact=False).first.wait_for(timeout=12000)
+              flm=page.evaluate("""() => ({expert:window.AthlysFeather?.lastRoute()?.expert,source:!!window.AthlysFeatherAssistantExpert})""")
+              assert flm["expert"]=="athlys.flm.coach-copilot" and flm["source"], f"FLM routing did not execute: {flm}"
+              page.screenshot(path="qa-evidence/feather-assistant-chat.png",full_page=True)
+              print("PASS FLM assistant UI routed user message through coach expert")
+
               Path("qa-evidence/results.txt").write_text("PASS: coach schedule -> review modal -> submit -> data saved -> reread; synthetic only\n")
               print("PASS coach Dual Perception UI journey and in-browser persistence with synthetic fixture")
               browser.close()
