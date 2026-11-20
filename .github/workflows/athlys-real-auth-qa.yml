@@ -1,9 +1,6 @@
 name: Athlys Field Beta — real Supabase Auth JWT QA
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths: ['.github/workflows/athlys-real-auth-qa.yml']
 permissions:
   contents: read
 jobs:
@@ -11,19 +8,26 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 14
     env:
-      EXPECTED_SHA: 717352b76800ad960a41fc4c33e3e81008602b11
+      EXPECTED_SHA: 221a65c94dd37527d723c85379cfe066ba4e079f
     steps:
       - uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: 717352b76800ad960a41fc4c33e3e81008602b11
+          ref: 221a65c94dd37527d723c85379cfe066ba4e079f
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Generate ephemeral test credentials and sign in through real GoTrue
+      - name: Validate live GoTrue sessions and Supabase row-level access
         shell: bash
+        env:
+          ATHLYS_QA_COACH_EMAIL: ${{ secrets.ATHLYS_QA_COACH_EMAIL }}
+          ATHLYS_QA_COACH_PASSWORD: ${{ secrets.ATHLYS_QA_COACH_PASSWORD }}
+          ATHLYS_QA_ATHLETE_EMAIL: ${{ secrets.ATHLYS_QA_ATHLETE_EMAIL }}
+          ATHLYS_QA_ATHLETE_PASSWORD: ${{ secrets.ATHLYS_QA_ATHLETE_PASSWORD }}
+          ATHLYS_QA_OUTSIDER_EMAIL: ${{ secrets.ATHLYS_QA_OUTSIDER_EMAIL }}
+          ATHLYS_QA_OUTSIDER_PASSWORD: ${{ secrets.ATHLYS_QA_OUTSIDER_PASSWORD }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
