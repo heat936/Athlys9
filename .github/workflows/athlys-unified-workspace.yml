@@ -56,9 +56,6 @@ jobs:
           test -s web/unified-workspace.css
           test -s web/unified-workspace.js
           node --check web/unified-workspace.js
-      - name: Deploy Web preview from runner (never production)
-        if: ${{ env.VERCEL_TOKEN_PRESENT == 'yes' }}
-        run: echo "No-op"
       - name: Deploy Web and Club to previews if Vercel token exists
         env:
           VERCEL_TOKEN: ${{ secrets.ATHLYS_VERCEL_TOKEN }}
