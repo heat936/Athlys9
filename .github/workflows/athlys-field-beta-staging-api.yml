@@ -1,0 +1,60 @@
+name: Athlys Field Beta — isolated API authorization gate
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/athlys-field-beta-staging-api.yml']
+permissions:
+  contents: read
+jobs:
+  api:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: f236f334523bec15c7b3e534c4340c03868f85c1
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify staging configuration and unauthenticated access denial
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p test-evidence
+          node <<'NODE'
+          const fs=require('node:fs');
+          const s=fs.readFileSync('web/app-config.js','utf8');
+          const url=s.match(/url:\s*["']([^"']+)["']/)?.[1];
+          const key=s.match(/anonKey:\s*["']([^"']+)["']/)?.[1];
+          if(url!=='https://avonfqgechvrnqxmbufn.supabase.co'||!key?.startsWith('sb_publishable_'))
+            throw Error('Unexpected staging configuration');
+          const endpoints=['athlys-performance-analysis','athlys-quantum-analysis','athlys-health-connect'];
+          const results=[];
+          const test=async(name,endpoint,headers={})=>{
+            const resp=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/json',...headers},body:'{}',signal:AbortSignal.timeout(20000)});
+            const result={name,status:resp.status};
+            results.push(result);
+            if(![401,403].includes(resp.status)) throw Error(name+': expected authentication denial, got HTTP '+resp.status);
+            console.log('PASS',name,'denied unauthenticated request: HTTP',resp.status);
+          };
+          (async()=>{
+            for(const name of endpoints) await test(name,url+'/functions/v1/'+name,{'apikey':key});
+            const response=await fetch(url+'/rest/v1/athlys_dual_perception?select=id&limit=1',{headers:{'apikey':key},signal:AbortSignal.timeout(20000)});
+            results.push({name:'athlys_dual_perception_anon_read',status:response.status});
+            if(![401,403].includes(response.status)) throw Error('Anonymous dual perception read not blocked: '+response.status);
+            console.log('PASS anonymous dual perception table read denied',response.status);
+            fs.writeFileSync('test-evidence/staging-api-results.json',JSON.stringify({source_commit:'f236f334523bec15c7b3e534c4340c03868f85c1',mode:'unauthenticated-negative-only',results},null,2)+'\n');
+          })().catch(e=>{console.error('FAIL',e.message);process.exitCode=1});
+          NODE
+      - name: Upload status-only evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: athlys-field-beta-staging-api-evidence
+          retention-days: 14
+          if-no-files-found: warn
+          path: test-evidence/
