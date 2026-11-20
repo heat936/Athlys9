@@ -1,0 +1,45 @@
+name: Athlys QA — real GoTrue/RLS via GitHub OIDC (no static admin key)
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/athlys-staging-oidc-real-auth.yml
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  real-gotrue-auth-qa:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Request signed GitHub OIDC and run restricted isolated Supabase Auth QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESPONSE="$(curl --silent --show-error --fail --retry 2 --retry-delay 2 \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=athlys-staging-auth-qa-oidc-v1")"
+          OIDC="$(printf '%s' "$RESPONSE" | jq -er .value)"
+          test -n "$OIDC"
+          STATUS="$(curl --silent --show-error --output /tmp/athlys-qa-oidc-result.json --write-out '%{http_code}' \
+            --max-time 110 -X POST \
+            -H "Content-Type: application/json" \
+            -H "apikey: sb_publishable_DmH8goDuKIUhmxhATfKanQ_emVtrEeT" \
+            -H "x-github-oidc: $OIDC" \
+            --data '{}' \
+            "https://avonfqgechvrnqxmbufn.supabase.co/functions/v1/athlys-qa-github-oidc-once")"
+          unset OIDC RESPONSE
+          echo "HTTP status: $STATUS"
+          cat /tmp/athlys-qa-oidc-result.json
+          test "$STATUS" = "200"
+          jq -e '.status == "PASS_REAL_GOTRUE_JWT_RLS_STAGING" and .temporary_accounts_deleted == true and .distinct_roles == 3' \
+            /tmp/athlys-qa-oidc-result.json >/dev/null
+          echo "PASS real isolated GoTrue JWT + RLS with verified cleanup"
+      - name: Upload de-identified QA results only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: athlys-staging-real-auth-oidc-evidence
+          retention-days: 7
+          if-no-files-found: ignore
+          path: /tmp/athlys-qa-oidc-result.json
