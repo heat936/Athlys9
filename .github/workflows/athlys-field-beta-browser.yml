@@ -1,0 +1,93 @@
+name: Athlys Field Beta — browser render smoke
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/athlys-field-beta-browser.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: df38b49afa51ada3896f5f73cfc28550a49c5156
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - name: Verify pinned source and build web scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = df38b49afa51ada3896f5f73cfc28550a49c5156
+          npm install --no-audit --no-fund > /tmp/athlys-field-browser-install.log 2>&1
+          npm run build:web > /tmp/athlys-field-browser-build.log 2>&1
+          mkdir -p test-evidence
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          Path("test-evidence/browser-provenance.json").write_text(json.dumps({
+            "source_commit":"df38b49afa51ada3896f5f73cfc28550a49c5156",
+            "runner_commit":os.environ["GITHUB_SHA"],
+            "run_id":os.environ["GITHUB_RUN_ID"],
+            "type":"isolated-render-smoke",
+            "note":"No real authenticated-user or production environment tests"
+          },indent=2)+"\n")
+          PY
+      - name: Set up Chromium Playwright
+        shell: bash
+        run: |
+          python3 -m pip install playwright==1.58.0 > /tmp/athlys-playwright-install.log 2>&1
+          python3 -m playwright install chromium > /tmp/athlys-chromium-install.log 2>&1
+      - name: Render desktop, club and mobile entry points
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m http.server 8765 --directory web --bind 127.0.0.1 >/tmp/athlys-field-local-server.log 2>&1 &
+          SERVER=$!
+          trap 'kill $SERVER 2>/dev/null || true' EXIT
+          python3 - <<'PY'
+          import json,time,urllib.request
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+          for i in range(40):
+              try:
+                  urllib.request.urlopen("http://127.0.0.1:8765/index.html",timeout=2)
+                  break
+              except Exception: time.sleep(.25)
+          else: raise RuntimeError("Static server did not start")
+          cases=[("web-desktop","index.html",1440,900),("club-desktop","club-app.html",1440,900),("mobile","mobile.html",390,844)]
+          results=[]
+          with sync_playwright() as p:
+              browser=p.chromium.launch(headless=True)
+              for name,path,width,height in cases:
+                  page=browser.new_page(viewport={"width":width,"height":height}, device_scale_factor=1)
+                  errors=[]
+                  page.on("pageerror",lambda err: errors.append(str(err)))
+                  response=page.goto(f"http://127.0.0.1:8765/{path}",wait_until="domcontentloaded",timeout=30000)
+                  page.wait_for_timeout(2000)
+                  visible=page.locator("body").is_visible()
+                  text=page.locator("body").inner_text(timeout=5000)
+                  page.screenshot(path=f"test-evidence/{name}.png",full_page=True,timeout=15000)
+                  outcome={"screen":name,"http":response.status if response else None,
+                           "visible_body":visible,"nonempty_body":bool(text.strip()),
+                           "javascript_errors":errors[:10]}
+                  results.append(outcome)
+                  page.close()
+              browser.close()
+          Path("test-evidence/browser-results.json").write_text(json.dumps(results,indent=2,ensure_ascii=False)+"\n")
+          for r in results: print(r["screen"],"status",r["http"],"visible",r["visible_body"],"text",r["nonempty_body"],"js_errors",len(r["javascript_errors"]))
+          if any(r["http"]!=200 or not r["visible_body"] or not r["nonempty_body"] for r in results):
+              raise SystemExit("BROWSER_RENDER_GATE_FAILED")
+          print("PASS: three isolated entry points rendered; evaluate JS errors in saved evidence")
+          PY
+      - name: Upload screenshots and render report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: athlys-field-beta-browser-evidence
+          retention-days: 14
+          if-no-files-found: warn
+          path: test-evidence/
