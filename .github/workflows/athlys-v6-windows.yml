@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: ops/v6-pwa-deploy-payload-20261119
+          ref: 4a45e111b701066c4edf9c4cadad5a0e2173dda4
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
           path: app
@@ -31,23 +31,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Overlay workspace into V6 entrypoints
+      - name: Verify unchanged navigation and official visual charter
         shell: pwsh
         run: |
-          Copy-Item workspace/web/unified-workspace.css app/web/unified-workspace.css
-          Copy-Item workspace/web/unified-workspace.js app/web/unified-workspace.js
-          @'
-          from pathlib import Path
-          for file in ('index.html','club-app.html'):
-              p=Path('app/web')/file
-              s=p.read_text(encoding='utf-8')
-              s=s.replace('</head>','<link rel="stylesheet" href="/unified-workspace.css?v=20261120"></head>',1)
-              s=s.replace('</body>','<script defer src="/unified-workspace.js?v=20261120"></script></body>',1)
-              p.write_text(s,encoding='utf-8')
-          '@ | python -
           node --check app/web/unified-workspace.js
           node --check app/web/app.js
           node --check app/web/club.js
+          if (!(Test-Path app/web/athlys-visual-charter-v1.css)) { throw 'Official charter CSS missing' }
+          if (!(Test-Path app/web/assets/athlys-symbol-free.svg)) { throw 'Official dark-mode symbol missing' }
+          if (!(Select-String -Quiet -Path app/web/index.html -SimpleMatch 'athlys-visual-charter-v1.css')) { throw 'Web charter link missing' }
+          if (!(Select-String -Quiet -Path app/web/club-app.html -SimpleMatch 'athlys-visual-charter-v1.css')) { throw 'Club charter link missing' }
       - name: Test original V6 source and build Web
         working-directory: app
         shell: pwsh
@@ -81,7 +74,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item ../web/unified-workspace.css web/unified-workspace.css
           Copy-Item ../web/unified-workspace.js web/unified-workspace.js
-          if (!(Test-Path web/unified-workspace.js)) { throw 'Missing unified workspace JS in Club package' }
+          Copy-Item ../web/athlys-visual-charter-v1.css web/athlys-visual-charter-v1.css
+          New-Item -ItemType Directory -Force -Path web/assets | Out-Null
+          Copy-Item ../web/assets/athlys-symbol-free.svg web/assets/athlys-symbol-free.svg
+          Copy-Item ../web/assets/athlys-lockup-inverse.svg web/assets/athlys-lockup-inverse.svg
+          if (!(Test-Path web/athlys-visual-charter-v1.css)) { throw 'Missing official charter CSS in Club Windows package' }
           npx electron-builder --win nsis portable --x64
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Pop-Location
