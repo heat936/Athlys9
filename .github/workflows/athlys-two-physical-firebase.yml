@@ -1,0 +1,97 @@
+name: Athlys — two verified physical Android devices (Firebase Test Lab)
+on:
+  workflow_dispatch:
+    inputs:
+      model_1:
+        description: First Firebase Test Lab physical Android model ID
+        required: true
+        type: string
+      model_2:
+        description: Second, different Firebase Test Lab physical Android model ID
+        required: true
+        type: string
+      os_version:
+        description: Android OS version supported by both physical models
+        required: true
+        type: string
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  physical-qa:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment: athlys-staging-physical-qa
+    steps:
+      - name: Preflight credentials and two different device IDs
+        shell: bash
+        env:
+          PROJECT: ${{ vars.ATHLYS_QA_GCP_PROJECT }}
+          PROVIDER: ${{ vars.ATHLYS_QA_GCP_WIF_PROVIDER }}
+          SERVICE_ACCOUNT: ${{ vars.ATHLYS_QA_GCP_SERVICE_ACCOUNT }}
+          MODEL_A: ${{ inputs.model_1 }}
+          MODEL_B: ${{ inputs.model_2 }}
+          OS: ${{ inputs.os_version }}
+        run: |
+          set -euo pipefail
+          test -n "$PROJECT" && test -n "$PROVIDER" && test -n "$SERVICE_ACCOUNT" || { echo 'BLOCKED: configure Firebase staging project + GCP OIDC WIF'; exit 2; }
+          [[ "$MODEL_A" =~ ^[A-Za-z0-9_-]{2,80}$ ]] && [[ "$MODEL_B" =~ ^[A-Za-z0-9_-]{2,80}$ ]]
+          [[ "$OS" =~ ^[0-9]{2,3}$ ]]
+          [[ "$MODEL_A" != "$MODEL_B" ]] || { echo 'NO_GO: two distinct physical model IDs are required'; exit 3; }
+      - uses: actions/download-artifact@v4
+        with:
+          name: athlys-field-beta-isolated-20261120-android-debug
+          repository: heat936/Athlys9
+          run-id: 44813613336
+          github-token: ${{ github.token }}
+          path: /tmp/athlys-qa-apk
+      - name: Verify exact QA APK and source provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          find /tmp/athlys-qa-apk -type f -name '*.apk'
+          test "$(find /tmp/athlys-qa-apk -type f -name '*.apk' | wc -l)" -eq 1
+          APK="$(find /tmp/athlys-qa-apk -type f -name '*.apk' | head -1)"
+          echo "APK=$APK" >> "$GITHUB_ENV"
+          sha256sum "$APK"
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.ATHLYS_QA_GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.ATHLYS_QA_GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Confirm two models are physical according to live Firebase catalog
+        shell: bash
+        env:
+          PROJECT: ${{ vars.ATHLYS_QA_GCP_PROJECT }}
+          MODEL_A: ${{ inputs.model_1 }}
+          MODEL_B: ${{ inputs.model_2 }}
+          OS: ${{ inputs.os_version }}
+        run: |
+          set -euo pipefail
+          gcloud config set project "$PROJECT" >/dev/null
+          gcloud firebase test android models describe "$MODEL_A" --format=json >/tmp/model-a.json
+          gcloud firebase test android models describe "$MODEL_B" --format=json >/tmp/model-b.json
+          python3 - <<'PY'
+          import json,os
+          for fp,label in [('/tmp/model-a.json','model_1'),('/tmp/model-b.json','model_2')]:
+              model=json.load(open(fp))
+              assert model.get('form')=='PHYSICAL',f"NO_GO: {label} is not a physical Android model"
+              versions=model.get('supportedVersionIds') or []
+              assert str(os.environ['OS']) in [str(x) for x in versions],f"NO_GO: {label} does not support selected OS"
+              print("PASS verified PHYSICAL model:",label,model.get('id'),"Android version:",os.environ['OS'])
+          PY
+      - name: Run genuine Android Robo smoke on exactly two physical models
+        shell: bash
+        env:
+          MODEL_A: ${{ inputs.model_1 }}
+          MODEL_B: ${{ inputs.model_2 }}
+          OS: ${{ inputs.os_version }}
+        run: |
+          set -euo pipefail
+          gcloud firebase test android run --type robo --app "$APK" \
+            --device "model=$MODEL_A,version=$OS,locale=fr,orientation=portrait" \
+            --device "model=$MODEL_B,version=$OS,locale=fr,orientation=portrait" \
+            --timeout 3m --no-auto-google-login \
+            --client-details "matrixLabel=Athlys-physical-smoke-${{ github.run_id }}"
+          echo "PASS two physical-device Firebase Robo test matrix finished"
+          echo "LIMIT: Robo smoke does NOT certify two concurrent real JWT sessions or coach-athlete E2E"
