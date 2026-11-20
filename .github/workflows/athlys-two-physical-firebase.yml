@@ -53,7 +53,8 @@ jobs:
           test "$(find /tmp/athlys-qa-apk -type f -name '*.apk' | wc -l)" -eq 1
           APK="$(find /tmp/athlys-qa-apk -type f -name '*.apk' | head -1)"
           echo "APK=$APK" >> "$GITHUB_ENV"
-          sha256sum "$APK"
+          echo "a5a65e7452286f9c38a3e48fe7cc5335090f27d1ed1b7976849e0724d7e6aa32  $APK" | sha256sum -c -
+          echo "PASS exact verified field-beta APK digest"
       - uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.ATHLYS_QA_GCP_WIF_PROVIDER }}
