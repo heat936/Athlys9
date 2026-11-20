@@ -1,0 +1,45 @@
+name: Athlys quick computed CSS
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-css-computed.yml]
+permissions: {contents: read}
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - run: |
+          which google-chrome || true
+          mkdir -p /tmp/athlys-css && cd /tmp/athlys-css
+          npm install --no-audit --no-fund playwright-core@1.56.1
+          cat > probe.cjs <<'JS'
+          const {chromium}=require('playwright-core');
+          (async()=>{
+            let browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});
+            for(const host of ['athlys-v6-pwa.vercel.app','athlys-v6-club.vercel.app']){
+              for(const screen of [{name:'desktop',width:1440,height:900},{name:'mobile',width:390,height:844}]){
+                const page=await browser.newPage({viewport:screen});
+                let failed=[];page.on('response',r=>{if(r.status()>=400)failed.push(r.status()+' '+r.url())});
+                await page.goto('https://'+host+'/',{waitUntil:'domcontentloaded',timeout:25000});
+                await page.waitForTimeout(1000);
+                const result=await page.evaluate(()=>{
+                  const q=(sel)=>{let e=document.querySelector(sel);if(!e)return null;let c=getComputedStyle(e);return {tag:e.tagName,txt:e.textContent.slice(0,70),bg:c.backgroundColor,color:c.color,font:c.fontFamily}};
+                  return {href:location.href,title:document.title,theme:document.documentElement.dataset.theme,sheets:[...document.styleSheets].map(x=>x.href).filter(Boolean),body:q('body'),app:q('#athlys,#club-app'),sidebar:q('.sidebar'),card:q('.card,.panel,.auth-card'),firstButton:q('button'),bodyText:document.body.innerText.slice(0,120),sw:!!navigator.serviceWorker?.controller};
+                });
+                console.log(JSON.stringify({host,screen:screen.name,result,failed}));
+                await page.screenshot({path:host+'-'+screen.name+'.png'});
+                await page.close();
+              }
+            }
+            await browser.close();
+          })().catch(e=>{console.error(e);process.exit(1)});
+          JS
+          node probe.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: athlys-css-computed
+          path: /tmp/athlys-css/*.png
+          retention-days: 3
