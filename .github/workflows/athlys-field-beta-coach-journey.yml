@@ -115,6 +115,22 @@ jobs:
               assert detail['present_confirmed'] is True and detail['observed_rpe']==7
               assert detail['athlete_id']=='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2'
               assert not errs, f"Uncaught JavaScript errors: {errs}"
+              diagnostic=page.evaluate("""() => {
+                const el=document.querySelector('#athlys .heading');
+                const nodes=[...document.elementsFromPoint(800,200)].slice(0,8);
+                const pack=(node)=>{if(!node)return null;const st=getComputedStyle(node),r=node.getBoundingClientRect();
+                  return {tag:node.tagName,className:typeof node.className==='string'?node.className:'',
+                    text:(node.textContent||'').trim().slice(0,80),
+                    rect:{x:r.x,y:r.y,width:r.width,height:r.height},display:st.display,
+                    background:st.backgroundColor,border:st.border,position:st.position,
+                    zIndex:st.zIndex,transform:st.transform,margin:st.margin,padding:st.padding}};
+                return {heading:pack(el),title:pack(el?.querySelector('h1')),actions:pack(el?.querySelector('.actions')),
+                  titleParent:pack(el?.firstElementChild),button:pack(el?.querySelector('button')),
+                  point800x200:nodes.map(pack)};
+              }""")
+              import json
+              Path("qa-evidence/heading-computed.json").write_text(json.dumps(diagnostic,indent=2,ensure_ascii=False))
+              print("HEADING_DIAGNOSTIC",json.dumps(diagnostic,ensure_ascii=False))
               page.screenshot(path="qa-evidence/coach-review.png",full_page=True)
               Path("qa-evidence/results.txt").write_text("PASS: coach schedule -> review modal -> submit -> data saved -> reread; synthetic only\n")
               print("PASS coach Dual Perception UI journey and in-browser persistence with synthetic fixture")
