@@ -82,6 +82,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cp web/mobile.html web/index.html
+          grep -q 'data-athlys-mobile="true"' web/index.html
           if ! (test -f android/gradlew || npx cap add android) >/tmp/field-android-setup.log 2>&1; then
             echo "::error::ANDROID_PROJECT_CREATION_FAILED"; exit 1
           fi
