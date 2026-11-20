@@ -1,0 +1,45 @@
+name: Athlys Field Beta — official live Auth JWT + RLS end to end
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-jwt:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      EXPECTED_SHA: 192b86b3b82c0339868845b50375238217465533
+      ATHLYS_QA_SERVICE_ROLE_KEY: ${{ secrets.ATHLYS_QA_SERVICE_ROLE_KEY }}
+      ATHLYS_QA_EMAIL_DOMAIN: ${{ secrets.ATHLYS_QA_EMAIL_DOMAIN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 192b86b3b82c0339868845b50375238217465533
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Preflight staging-only and credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test -n "$ATHLYS_QA_SERVICE_ROLE_KEY" || { echo 'BLOCKED: staging Auth admin secret not configured'; exit 2; }
+          test -n "$ATHLYS_QA_EMAIL_DOMAIN" || { echo 'BLOCKED: authorized QA email domain not configured'; exit 2; }
+          grep -q 'avonfqgechvrnqxmbufn' web/app-config.js
+          npm install --ignore-scripts --no-audit --no-fund >/tmp/npm-qa.log 2>&1
+      - name: Provision only synthetic QA users via official Admin API, issue real JWT, verify RLS, and clean up
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tests/athlys-real-auth-provision-run-cleanup.cjs
+      - name: Archive redacted verification output only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: athlys-auth-real-jwt-qa-evidence
+          retention-days: 7
+          if-no-files-found: ignore
+          path: qa-evidence/real-auth-results.json
