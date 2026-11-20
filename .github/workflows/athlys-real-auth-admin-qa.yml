@@ -8,14 +8,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
-      EXPECTED_SHA: 23707cabe0a47db5ac8727d393b3fdefc05e6816
+      EXPECTED_SHA: 1f5cacf49f8862e85d50ad23204cc4d24f74319e
       ATHLYS_QA_SERVICE_ROLE_KEY: ${{ secrets.ATHLYS_QA_SERVICE_ROLE_KEY }}
       ATHLYS_QA_EMAIL_DOMAIN: ${{ secrets.ATHLYS_QA_EMAIL_DOMAIN }}
     steps:
       - uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: 23707cabe0a47db5ac8727d393b3fdefc05e6816
+          ref: 1f5cacf49f8862e85d50ad23204cc4d24f74319e
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
