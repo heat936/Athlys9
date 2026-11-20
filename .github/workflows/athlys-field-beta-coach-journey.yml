@@ -88,12 +88,12 @@ jobs:
           with sync_playwright() as p:
               browser=p.chromium.launch(headless=True)
               context=browser.new_context(viewport={"width":1440,"height":900},service_workers="block")
-          page=context.new_page()
+              page=context.new_page()
               errs=[]
               page.on("pageerror",lambda e:errs.append(str(e)))
               page.add_init_script(script=Path("/tmp/athlys-mock.js").read_text())
               page.route("**/supabase.min.js", lambda route:route.fulfill(status=200,content_type="application/javascript",body="/* Supabase mocked only for QA */"))
-          page.route("**/pwa.js", lambda route:route.fulfill(status=200,content_type="application/javascript",body="/* Disabled service worker in isolated QA */"))
+              page.route("**/pwa.js", lambda route:route.fulfill(status=200,content_type="application/javascript",body="/* Disabled service worker in isolated QA */"))
               page.goto("http://127.0.0.1:8765/index.html",wait_until="load",timeout=30000)
               page.locator('[data-nav="schedule"]').first.wait_for(state="visible",timeout=20000)
               page.locator('[data-nav="schedule"]').first.click()
