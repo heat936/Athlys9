@@ -48,6 +48,26 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
           test -r /dev/kvm && test -w /dev/kvm
+      - name: Create single-shell emulator smoke script
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > qa/run-emulator-smoke.sh <<'SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          APK="$(find candidate -name app-debug.apk -type f -print -quit)"
+          test -n "$APK" && test -s "$APK"
+          adb install -r "$APK"
+          adb shell am start -n com.athlys.app/.MainActivity
+          sleep 18
+          adb shell pidof com.athlys.app | grep -Eq '[0-9]+'
+          adb shell dumpsys activity activities | grep -E 'com.athlys.app|MainActivity' > qa/android-foreground.txt
+          adb shell screencap -p /sdcard/athlys-field-beta.png
+          adb pull /sdcard/athlys-field-beta.png qa/android-launch.png
+          test -s qa/android-launch.png
+          echo 'PASS: installed, launched and captured exact candidate APK'
+          SCRIPT
+          chmod +x qa/run-emulator-smoke.sh
       - name: Android 14 install and foreground startup smoke
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -58,17 +78,7 @@ jobs:
           emulator-boot-timeout: 480
           disable-animations: true
           script: |
-            set -e
-            APK="$(find candidate -name app-debug.apk -type f -print -quit)"
-            adb install -r "$APK"
-            adb shell am start -n com.athlys.app/.MainActivity
-            sleep 18
-            adb shell pidof com.athlys.app | grep -Eq '[0-9]+'
-            adb shell dumpsys activity activities | grep -E 'com.athlys.app|MainActivity' > qa/android-foreground.txt
-            adb shell screencap -p /sdcard/athlys-field-beta.png
-            adb pull /sdcard/athlys-field-beta.png qa/android-launch.png
-            test -s qa/android-launch.png
-            echo "PASS: candidate installed, activity running, screenshot saved"
+            bash qa/run-emulator-smoke.sh
       - name: Upload QA evidence
         if: always()
         uses: actions/upload-artifact@v4
