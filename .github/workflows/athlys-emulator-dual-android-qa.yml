@@ -28,7 +28,7 @@ jobs:
           run-id: 44813613336
           github-token: ${{ github.token }}
           path: candidate
-      - name: Verify exact QA APK
+      - name: Verify exact QA APK and prepare Bash smoke
         shell: bash
         run: |
           set -euo pipefail
@@ -37,6 +37,23 @@ jobs:
           test -n "$APK"
           echo "a5a65e7452286f9c38a3e48fe7cc5335090f27d1ed1b7976849e0724d7e6aa32  $APK" | sha256sum -c -
           echo "APK=$APK" >> "$GITHUB_ENV"
+          cat > qa/run-smoke.sh <<'BASH_SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          adb wait-for-device
+          adb devices -l | tee qa/adb-devices.txt
+          adb shell getprop ro.kernel.qemu | grep -q '^1$'
+          adb install -r "$APK"
+          adb shell am start -n com.athlys.app/.MainActivity
+          sleep 15
+          adb shell pidof com.athlys.app | grep -Eq '[0-9]+'
+          adb shell dumpsys activity activities | grep -E 'com.athlys.app|MainActivity' > qa/foreground.txt
+          adb shell screencap -p /sdcard/athlys-qa-launch.png
+          adb pull /sdcard/athlys-qa-launch.png qa/android-launch.png
+          test -s qa/android-launch.png
+          adb logcat -d -v brief -t 3000 | grep -E 'AndroidRuntime|FATAL EXCEPTION|com.athlys.app' > qa/app-logcat.txt || :
+          echo '{"status":"PASS","device_type":"EMULATOR","api_level":${{ matrix.api-level }},"scope":"APK install, launch, process and screenshot","physical_test":false,"jwt_test":false}' > qa/result.json
+          BASH_SCRIPT
       - name: Boot emulator and smoke test
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -49,26 +66,8 @@ jobs:
           disk-size: 4096M
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot
           disable-animations: true
-          script: |
-            cat > /tmp/athlys-emulator-smoke.sh <<'ATHLYS_BASH'
-            set -euo pipefail
-            adb wait-for-device
-            adb devices -l | tee qa/adb-devices.txt
-            adb shell getprop ro.kernel.qemu | grep -q '^1$'
-            adb install -r "$APK"
-            adb shell am start -n com.athlys.app/.MainActivity
-            sleep 15
-            adb shell pidof com.athlys.app | grep -Eq '[0-9]+'
-            adb shell dumpsys activity activities | grep -E 'com.athlys.app|MainActivity' > qa/foreground.txt
-            adb shell screencap -p /sdcard/athlys-qa-launch.png
-            adb pull /sdcard/athlys-qa-launch.png qa/android-launch.png
-            test -s qa/android-launch.png
-            adb logcat -d -v brief -t 3000 | grep -E 'AndroidRuntime|FATAL EXCEPTION|com.athlys.app' > qa/app-logcat.txt || :
-            echo '{"status":"PASS","device_type":"EMULATOR","api_level":${{ matrix.api-level }},"scope":"APK install, launch, process and screenshot","physical_test":false,"jwt_test":false}' > qa/result.json
-                 
-            ATHLYS_BASH
-            bash /tmp/athlys-emulator-smoke.sh
- - name: Store emulator evidence even on failure
+          script: bash qa/run-smoke.sh
+      - name: Store emulator evidence even on failure
         if: always()
         uses: actions/upload-artifact@v4
         with:
