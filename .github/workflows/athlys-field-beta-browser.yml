@@ -79,9 +79,9 @@ jobs:
               browser.close()
           Path("test-evidence/browser-results.json").write_text(json.dumps(results,indent=2,ensure_ascii=False)+"\n")
           for r in results: print(r["screen"],"status",r["http"],"visible",r["visible_body"],"text",r["nonempty_body"],"js_errors",len(r["javascript_errors"]))
-          if any(r["http"]!=200 or not r["visible_body"] or not r["nonempty_body"] for r in results):
+          if any(r["http"]!=200 or not r["visible_body"] or not r["nonempty_body"] or r["javascript_errors"] for r in results):
               raise SystemExit("BROWSER_RENDER_GATE_FAILED")
-          print("PASS: three isolated entry points rendered; evaluate JS errors in saved evidence")
+          print("PASS: three entry points rendered without uncaught JavaScript errors")
           PY
       - name: Upload screenshots and render report
         if: always()
