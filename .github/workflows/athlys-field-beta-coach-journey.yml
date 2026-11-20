@@ -151,6 +151,39 @@ jobs:
 
               Path("qa-evidence/results.txt").write_text("PASS: coach schedule -> review modal -> submit -> data saved -> reread; synthetic only\n")
               print("PASS coach Dual Perception UI journey and in-browser persistence with synthetic fixture")
+              athlete_context=browser.new_context(viewport={"width":390,"height":844},service_workers="block")
+              athlete_page=athlete_context.new_page()
+              athlete_errors=[]
+              athlete_page.on("pageerror",lambda e:athlete_errors.append(str(e)))
+              athlete_script=Path("/tmp/athlys-mock.js").read_text()
+              athlete_script=athlete_script.replace("session:{user:{id:coach}}", "session:{user:{id:athlete}}")
+              athlete_script=athlete_script.replace("data:{user:{id:coach}}", "data:{user:{id:athlete}}")
+              athlete_page.add_init_script(script=athlete_script)
+              athlete_page.route("**/supabase.min.js",lambda route:route.fulfill(status=200,content_type="application/javascript",body="/* QA auth mock */"))
+              athlete_page.route("**/pwa.js",lambda route:route.fulfill(status=200,content_type="application/javascript",body="/* QA offline */"))
+              athlete_page.goto("http://127.0.0.1:8765/mobile.html",wait_until="load",timeout=30000)
+              athlete_page.locator('.assistant-launch').wait_for(state="visible",timeout=15000)
+              athlete_page.locator('.assistant-launch').click()
+              athlete_form=athlete_page.locator('form[data-form="assistant"]')
+              athlete_form.wait_for(state="visible",timeout=6000)
+              athlete_form.locator('[name="prompt"]').fill("Enregistre mon ressenti : forme 4 stress 2 récupération 3")
+              athlete_form.locator('button.btn.primary').first.click()
+              athlete_page.locator('.assistant-pending').wait_for(state="visible",timeout=10000)
+              assert athlete_page.evaluate("window.AthlysFeather.lastRoute().expert")=="athlys.flm.coach-copilot"
+              athlete_context.set_offline(True)
+              athlete_page.locator('[data-action="assistant-confirm"]').click()
+              athlete_page.get_by_text("en attente de synchronisation",exact=False).first.wait_for(timeout=10000)
+              pending=athlete_page.evaluate("""async () => {
+                const a=window.__ATHLYS_QA__.athlete;
+                const rows=await window.AthlysOfflineStore.list(a);
+                return rows.map(x=>({table:x.table,feeling:x.payload.feeling,stress:x.payload.stress,
+                  recovery:x.payload.recovery,athlete_id:x.payload.athlete_id}));
+              }""")
+              assert len(pending)==1 and pending[0]["table"]=="athlete_checkins",pending
+              assert [pending[0][k] for k in ["feeling","stress","recovery"]]==[4,2,3],pending
+              assert not athlete_errors, athlete_errors
+              athlete_page.screenshot(path="qa-evidence/athlete-offline-confirmed-checkin.png",full_page=True)
+              print("PASS athlete FLM assistant checkin: confirmed offline UI action persisted in IndexedDB queue")
               browser.close()
           PY
           python3 /tmp/test-athlys-ui.py
