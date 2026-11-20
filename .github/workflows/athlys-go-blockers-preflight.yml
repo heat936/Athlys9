@@ -1,0 +1,59 @@
+name: Athlys GO blockers — offline preflight contracts
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/athlys-go-blockers-preflight.yml']
+permissions:
+  contents: read
+jobs:
+  acceptance-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 23707cabe0a47db5ac8727d393b3fdefc05e6816
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Audit source and credentials isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 23707cabe0a47db5ac8727d393b3fdefc05e6816
+          node --check tests/athlys-real-auth-provision-run-cleanup.cjs
+          node --check tests/athlys-real-supabase-auth-qa.cjs
+          bash -n scripts/athlys-two-physical-android-qa.sh
+          node <<'NODE'
+          const fs=require('fs'),assert=require('assert/strict');
+          const auth=fs.readFileSync('tests/athlys-real-auth-provision-run-cleanup.cjs','utf8');
+          const jwt=fs.readFileSync('tests/athlys-real-supabase-auth-qa.cjs','utf8');
+          const android=fs.readFileSync('scripts/athlys-two-physical-android-qa.sh','utf8');
+          const checks={
+            officialAdminAuth:auth.includes('admin.auth.admin.createUser'),
+            realGoTrue:jwt.includes('auth.signInWithPassword'),
+            verifiedGoTrueIdentity:jwt.includes('auth.getUser()'),
+            verifiedJwtIssuer:jwt.includes('assert.equal(claims.iss,url+"/auth/v1")'),
+            isolatedStaging:auth.includes('avonfqgechvrnqxmbufn'),
+            noAdminKeyInClient:auth.includes('delete env.ATHLYS_QA_SERVICE_ROLE_KEY'),
+            verifiedCleanup:auth.includes('await verifyCleanup()'),
+            cleanupFailureBlocksPass:auth.includes('if(succeeded && !process.exitCode)'),
+            coachReviewRls:jwt.includes('COACH_REVIEW'),
+            negativeRlsTest:jwt.includes('CHECKIN_RLS_LEAK'),
+            requiresTwoPhones:android.includes('COUNT" != "2"'),
+            rejectsEmulators:android.includes('ro.kernel.qemu'),
+            noPhysicalSuccessWithoutDevice:android.includes('NO-GO full field acceptance')
+          };
+          for(const [check,passed] of Object.entries(checks)){assert(passed,check);console.log('PASS static QA contract:',check)}
+          console.log('NOT A REAL JWT/PHYSICAL PASS: gate credentials/hardware remain necessary');
+          NODE
+      - name: Regress local Feather assistant with no live account
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --ignore-scripts --no-audit --no-fund >/tmp/qa-install.log 2>&1
+          npm test
