@@ -1,0 +1,129 @@
+name: Athlys Field Beta — Coach Dual Perception browser journey
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/athlys-field-beta-coach-journey.yml']
+permissions:
+  contents: read
+jobs:
+  journey:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: b1887c231d87941e07ddcb087548c8994c81b055
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated browser QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "b1887c231d87941e07ddcb087548c8994c81b055"
+          npm install --no-audit --no-fund >/tmp/qa-npm.log 2>&1
+          npm run build:web >/tmp/qa-web.log 2>&1
+          python3 -m pip install playwright==1.58.0 >/tmp/qa-pip.log 2>&1
+          python3 -m playwright install chromium >/tmp/qa-chromium.log 2>&1
+      - name: Test authenticated coach journey with in-browser synthetic Supabase fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qa-evidence
+          python3 -m http.server 8765 --directory web --bind 127.0.0.1 >/tmp/qa-server.log 2>&1 &
+          SERVER=$!
+          trap 'kill $SERVER 2>/dev/null || true' EXIT
+          cat > /tmp/athlys-mock.js <<'JS'
+          (() => {
+            const coach='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', athlete='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2';
+            const event='cccccccc-cccc-4ccc-8ccc-ccccccccccc3';
+            const rows={
+              profiles:[{id:coach,role:'coach',full_name:'Coach QA',first_name:'Coach',last_name:'QA'},
+                {id:athlete,role:'athlete',full_name:'Athlète QA',first_name:'Athlète',last_name:'QA'}],
+              coach_athletes:[{coach_id:coach,athlete_id:athlete}],
+              coach_details:[{coach_id:coach}],
+              athlete_details:[{athlete_id:athlete,share_with_coach:true,sport:'Athlétisme · sprint'}],
+              calendar_events:[{id:event,coach_id:coach,athlete_id:athlete,created_by:coach,title:'Séance QA supervisée',starts_at:new Date(Date.now()-7200000).toISOString(),coach_supervises:true,discipline:'100 m',session_type:'Entraînement'}],
+              athlys_dual_perception:[],
+              training_logs:[],
+            };
+            const matches=(r,filters)=>filters.every(([op,k,v])=>op==='eq'?r[k]===v:op==='in'?v.includes(r[k]):op==='gte'?String(r[k]||'')>=String(v):true);
+            const query=(table)=>{
+              const filters=[];
+              const q={
+                select:()=>q,eq:(k,v)=>{filters.push(['eq',k,v]);return q;},
+                in:(k,v)=>{filters.push(['in',k,v]);return q;},
+                gte:(k,v)=>{filters.push(['gte',k,v]);return q;},
+                or:()=>q,order:()=>q,limit:()=>q,
+                maybeSingle:()=>Promise.resolve({data:(rows[table]||[]).find(r=>matches(r,filters))||null,error:null}),
+                single:()=>Promise.resolve({data:(rows[table]||[]).find(r=>matches(r,filters))||null,error:null}),
+                insert:(data)=>{const value=Array.isArray(data)?data:[data];(rows[table]||(rows[table]=[])).push(...value);return Promise.resolve({data:value,error:null});},
+                update:(data)=>{(rows[table]||[]).forEach(r=>Object.assign(r,data));return q;},
+                then:(ok,err)=>Promise.resolve({data:(rows[table]||[]).filter(r=>matches(r,filters)),error:null}).then(ok,err)
+              };
+              return q;
+            };
+            const auth={
+              getSession:async()=>({data:{session:{user:{id:coach}}},error:null}),
+              getUser:async()=>({data:{user:{id:coach}},error:null}),
+              onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}}),
+              signOut:async()=>({error:null})
+            };
+            const channel={on(){return this},subscribe(){return this},unsubscribe(){}};
+            const client={auth,from:query,channel:()=>Object.create(channel),removeChannel(){},
+              rpc:async(name)=>({data:name==='get_my_coach_code'?'QA-CODE':null,error:null}),
+              functions:{invoke:async()=>({data:{},error:null})},
+              storage:{from:()=>({createSignedUrl:async()=>({data:{signedUrl:''},error:null})})}};
+            window.__ATHLYS_QA__={rows,coach,athlete,event};
+            window.supabase={createClient:()=>client};
+          })();
+          JS
+          cat > /tmp/test-athlys-ui.py <<'PY'
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as p:
+              browser=p.chromium.launch(headless=True)
+              page=browser.new_page(viewport={"width":1440,"height":900})
+              errs=[]
+              page.on("pageerror",lambda e:errs.append(str(e)))
+              page.add_init_script(script=Path("/tmp/athlys-mock.js").read_text())
+              page.route("**/supabase.min.js", lambda route:route.fulfill(status=200,content_type="application/javascript",body="/* Supabase mocked only for QA */"))
+              page.goto("http://127.0.0.1:8765/index.html",wait_until="load",timeout=30000)
+              page.locator('[data-nav="schedule"]').first.wait_for(state="visible",timeout=20000)
+              page.locator('[data-nav="schedule"]').first.click()
+              page.get_by_text("Séance QA supervisée").first.wait_for(timeout=10000)
+              page.locator('[data-action="coach-review"]').first.click()
+              form=page.locator('form[data-form="coach-review"]')
+              form.wait_for(state="visible",timeout=5000)
+              form.locator('[name="observed_rpe"]').fill("7")
+              form.locator('[name="execution_score"]').fill("4")
+              form.locator('[name="technique_score"]').fill("4")
+              form.locator('[name="engagement_score"]').fill("5")
+              form.locator('[name="notes"]').fill("Observation QA sans données personnelles")
+              form.locator('[name="present_confirmed"]').check()
+              form.locator('button.btn.primary').click()
+              page.get_by_text("Perception coach 7/10").first.wait_for(timeout=10000)
+              count=page.evaluate("window.__ATHLYS_QA__.rows.athlys_dual_perception.length")
+              assert count==1, f"Expected exactly one coach observation, got {count}"
+              detail=page.evaluate("window.__ATHLYS_QA__.rows.athlys_dual_perception[0]")
+              assert detail['present_confirmed'] is True and detail['observed_rpe']==7
+              assert detail['athlete_id']=='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2'
+              assert not errs, f"Uncaught JavaScript errors: {errs}"
+              page.screenshot(path="qa-evidence/coach-review.png",full_page=True)
+              Path("qa-evidence/results.txt").write_text("PASS: coach schedule -> review modal -> submit -> data saved -> reread; synthetic only\n")
+              print("PASS coach Dual Perception UI journey and in-browser persistence with synthetic fixture")
+              browser.close()
+          PY
+          python3 /tmp/test-athlys-ui.py
+      - name: Attach synthetic UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: athlys-coach-dual-perception-browser-journey
+          retention-days: 14
+          if-no-files-found: warn
+          path: qa-evidence/
