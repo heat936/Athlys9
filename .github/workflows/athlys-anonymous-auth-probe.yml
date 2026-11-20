@@ -1,0 +1,54 @@
+name: Athlys Supabase — genuine anonymous Auth JWT probe
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/athlys-anonymous-auth-probe.yml']
+permissions:
+  contents: read
+jobs:
+  auth-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: e9597b2ca76c4ef61e11f3e428c103083cfa3666
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - name: Check official Supabase anonymous Auth without exposing JWT
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund >/tmp/npm.log 2>&1
+          node <<'NODE'
+          const fs=require('fs'),assert=require('assert/strict');
+          const {createClient}=require('@supabase/supabase-js');
+          const config=fs.readFileSync('web/app-config.js','utf8');
+          const url=config.match(/url:\s*["']([^"']+)["']/)?.[1];
+          const key=config.match(/anonKey:\s*["']([^"']+)["']/)?.[1];
+          assert.equal(url,'https://avonfqgechvrnqxmbufn.supabase.co');
+          assert.match(key||'',/^sb_publishable_/);
+          const supabase=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}});
+          (async()=>{
+            const {data,error}=await supabase.auth.signInAnonymously();
+            if(error){
+              console.log('NO_GO_ANONYMOUS_AUTH reason='+String(error.code||error.status||'unavailable'));
+              process.exitCode=2;return;
+            }
+            assert(data.session && data.user && data.user.is_anonymous===true);
+            const jwt=data.session.access_token;
+            assert.equal(jwt.split('.').length,3);
+            const auth=await supabase.auth.getUser(jwt);
+            assert.ifError(auth.error);
+            assert.equal(auth.data.user.id,data.user.id);
+            const rows=await supabase.from('profiles').select('id').eq('id',data.user.id);
+            console.log('PASS official GoTrue issued and verified signed JWT');
+            console.log('PASS authenticated PostgREST call='+(!rows.error));
+            console.log('QUALIFICATION anonymous Auth JWT, NOT permanent email+password account');
+            await supabase.auth.signOut();
+          })().catch(e=>{console.error('ERROR '+e.message);process.exitCode=1});
+          NODE
