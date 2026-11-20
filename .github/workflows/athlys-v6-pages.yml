@@ -64,8 +64,9 @@ jobs:
         run: |
           set -euo pipefail
           npm install --no-audit --no-fund
-          npm run build:web
+          # Run tests against the original source before the compatibility build rewrites JS.
           npm test
+          npm run build:web
       - name: Prepare public frontend for subpath hosting
         shell: bash
         run: |
@@ -105,6 +106,8 @@ jobs:
           git -C app rev-parse HEAD | tee /tmp/athlys-v6-source-sha.txt
           echo "No repository source tree or private Git history is published; only static frontend assets."
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: public
