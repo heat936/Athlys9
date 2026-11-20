@@ -75,6 +75,22 @@ jobs:
               assert result["expert"]=="athlys.flm.coach-copilot",result
               assert "180" in result["answer"] and result["remote"] is False,result
               assert not errors, f"Unexpected JS errors: {errors}"
+              queued=page.evaluate("""async () => {
+                const store=window.AthlysOfflineStore;
+                if(!store)throw new Error('OFFLINE_STORE_MISSING');
+                await store.enqueue('qa-athlete-offline','athlete_checkins',{
+                  athlete_id:'qa-athlete-offline',day_type:'training',feeling:4,stress:2,recovery:3,
+                  note:'Synthetic no-network test'
+                });
+                return await store.count('qa-athlete-offline');
+              }""")
+              assert queued==1, f"Expected one queued offline checkin, got {queued}"
+              page.reload(wait_until="domcontentloaded",timeout=20000)
+              persisted=page.evaluate("""async () => {
+                return await window.AthlysOfflineStore.count('qa-athlete-offline');
+              }""")
+              assert persisted==1, f"Offline checkin did not survive reload: {persisted}"
+              print("PASS IndexedDB offline checkin survives a disconnected app reload")
               page.screenshot(path="qa-evidence/offline-flm-mobile.png",full_page=True)
               Path("qa-evidence/offline-flm-result.json").write_text(json.dumps({
                 "source_commit":"c802c8f94fe8f47c6c36ed5bd5ed4b10d4fb97cc",
@@ -83,6 +99,7 @@ jobs:
                 "local_expert":result["expert"],
                 "load_au_expected":180,
                 "network_calls_for_chat":0,
+                "offline_checkin_persisted":True,
                 "page_errors":errors
               },indent=2))
               print("PASS PWA offline reload, precache and Feather local chat on 390x844 mobile")
