@@ -40,14 +40,23 @@ jobs:
           mkdir -p qa
           cp candidate/candidate-provenance.json qa/candidate-provenance.json
           echo "PASS: exact release APK passed archive and checksum checks"
-      - name: Enable KVM acceleration
+      - name: Detect KVM acceleration with software fallback
+        id: kvm
         shell: bash
         run: |
           set -euo pipefail
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          test -r /dev/kvm && test -w /dev/kvm
+          if [ -e /dev/kvm ]; then
+            echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+            sudo udevadm control --reload-rules
+            sudo udevadm trigger --name-match=kvm
+          fi
+          if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+            echo "accel=on" >> "$GITHUB_OUTPUT"
+            echo "KVM hardware acceleration available"
+          else
+            echo "accel=off" >> "$GITHUB_OUTPUT"
+            echo "::warning::KVM unavailable; attempt emulator with software acceleration"
+          fi
       - name: Create single-shell emulator smoke script
         shell: bash
         run: |
@@ -77,6 +86,7 @@ jobs:
           profile: pixel_6
           emulator-boot-timeout: 480
           disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -accel ${{ steps.kvm.outputs.accel }}
           script: |
             bash qa/run-emulator-smoke.sh
       - name: Upload QA evidence
