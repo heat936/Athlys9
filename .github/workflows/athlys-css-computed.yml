@@ -26,7 +26,7 @@ jobs:
                 await page.waitForTimeout(1000);
                 const result=await page.evaluate(()=>{
                   const q=(sel)=>{let e=document.querySelector(sel);if(!e)return null;let c=getComputedStyle(e);return {tag:e.tagName,txt:e.textContent.slice(0,70),bg:c.backgroundColor,color:c.color,font:c.fontFamily}};
-                  return {href:location.href,title:document.title,theme:document.documentElement.dataset.theme,sheets:[...document.styleSheets].map(x=>x.href).filter(Boolean),body:q('body'),app:q('#athlys,#club-app'),sidebar:q('.sidebar'),card:q('.card,.panel,.auth-card'),firstButton:q('button'),bodyText:document.body.innerText.slice(0,120),sw:!!navigator.serviceWorker?.controller};
+                  return {href:location.href,title:document.title,theme:document.documentElement.dataset.theme,sheets:[...document.styleSheets].map(x=>x.href).filter(Boolean),body:q('body'),app:q('#athlys,#club-app'),sidebar:q('.sidebar'),authLayout:q('.auth-layout,.auth-shell'),authCardWrap:q('.auth-card-wrap'),authBrand:q('.auth-brand,.auth-visual'),card:q('.card,.panel,.auth-card'),firstButton:q('button'),bodyText:document.body.innerText.slice(0,120),sw:!!navigator.serviceWorker?.controller};
                 });
                 console.log(JSON.stringify({host,screen:screen.name,result,failed}));
                 await page.screenshot({path:host+'-'+screen.name+'.png'});
