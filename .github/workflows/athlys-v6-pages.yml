@@ -65,6 +65,7 @@ jobs:
           set -euo pipefail
           npm install --no-audit --no-fund
           npm run build:web
+          npm test
       - name: Prepare public frontend for subpath hosting
         shell: bash
         run: |
@@ -85,11 +86,22 @@ jobs:
               text=re.sub(r'(?<=["\'])/(?!/|Athlys9/|https?:)(?=[\w.-])','/Athlys9/',text)
               path.write_text(text,encoding='utf-8')
           PY
+          # Service worker cache root must point at the GitHub Pages project, not the user domain.
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('public/sw.js')
+          s=p.read_text(encoding='utf-8').replace('  "/",', '  "/Athlys9/",')
+          p.write_text(s,encoding='utf-8')
+          PY
           printf '<!doctype html><html lang="fr"><meta charset="utf-8"><title>Athlys V6</title><meta http-equiv="refresh" content="0;url=/Athlys9/index.html"><a href="/Athlys9/index.html">Athlys V6</a></html>' > public/404.html
           test -s public/index.html
           test -s public/club-app.html
           test -s public/unified-workspace.js
           test -s public/product-v6.js
+          test -s public/sw.js
+          grep -Fq '/Athlys9/unified-workspace.css' public/index.html
+          grep -Fq '/Athlys9/unified-workspace.js' public/club-app.html
+          ! grep -Fq '  "/",' public/sw.js
           git -C app rev-parse HEAD | tee /tmp/athlys-v6-source-sha.txt
           echo "No repository source tree or private Git history is published; only static frontend assets."
       - uses: actions/configure-pages@v5
