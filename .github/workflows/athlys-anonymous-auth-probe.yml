@@ -23,7 +23,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm ci --ignore-scripts --no-audit --no-fund >/tmp/npm.log 2>&1
+          npm install --ignore-scripts --no-audit --no-fund >/tmp/npm.log 2>&1
           node <<'NODE'
           const fs=require('fs'),assert=require('assert/strict');
           const {createClient}=require('@supabase/supabase-js');
