@@ -1,0 +1,89 @@
+name: Athlys unified workspace — public runner preview
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/athlys-unified-workspace.yml
+permissions:
+  contents: read
+jobs:
+  verify-and-preview:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - name: Check private read token is configured
+        env:
+          READ_TOKEN: ${{ secrets.ATHLYS_READ_TOKEN }}
+        run: |
+          test -n "$READ_TOKEN" || { echo "::error::ATHLYS_READ_TOKEN is missing"; exit 1; }
+      - name: Checkout private Athlys source without persisting credentials
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: df38b49afa51ada3896f5f73cfc28550a49c5156
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - name: Verify source provenance and navigation entrypoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "df38b49afa51ada3896f5f73cfc28550a49c5156"
+          test -s web/unified-workspace.css
+          test -s web/unified-workspace.js
+          grep -Fq 'unified-workspace.js' web/index.html
+          grep -Fq 'unified-workspace.js' web/club-app.html
+          grep -Fq 'unified-workspace.css' web/index.html
+          grep -Fq 'unified-workspace.css' web/club-app.html
+          node --check web/unified-workspace.js
+          node --check web/app.js
+          node --check web/club.js
+          echo "Verified private source $(git rev-parse --short HEAD)"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies and build
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run build:web
+          npm test
+      - name: Verify web outputs
+        run: |
+          set -euo pipefail
+          test -s web/index.html
+          test -s web/club-app.html
+          test -s web/unified-workspace.css
+          test -s web/unified-workspace.js
+          node --check web/unified-workspace.js
+      - name: Deploy Web preview from runner (never production)
+        if: ${{ env.VERCEL_TOKEN_PRESENT == 'yes' }}
+        run: echo "No-op"
+      - name: Deploy Web and Club to previews if Vercel token exists
+        env:
+          VERCEL_TOKEN: ${{ secrets.ATHLYS_VERCEL_TOKEN }}
+          VERCEL_ORG_ID: team_ygZ0BbM0NFxpWkW02z6vBNV7
+          WEB_PROJECT_ID: prj_T2bv0t3WHkmYLz9zQSvYc9WeV8fD
+          CLUB_PROJECT_ID: prj_ingkkjGb7VgpwLwRFMuCVn5GHmxs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${VERCEL_TOKEN:-}" ]; then
+            echo "::notice::Build verified. Set ATHLYS_VERCEL_TOKEN to enable preview deployment."
+            exit 0
+          fi
+          npm install -g vercel@latest
+          mkdir -p web/.vercel
+          printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$WEB_PROJECT_ID" > web/.vercel/project.json
+          ( cd web && vercel deploy --yes --token "$VERCEL_TOKEN" )
+          # Club preview uses the same web assets but a club-specific root entrypoint.
+          mkdir -p /tmp/athlys-club-preview
+          cp -R web/. /tmp/athlys-club-preview/
+          cp web/club-app.html /tmp/athlys-club-preview/index.html
+          printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$CLUB_PROJECT_ID" > /tmp/athlys-club-preview/.vercel/project.json
+          ( cd /tmp/athlys-club-preview && vercel deploy --yes --token "$VERCEL_TOKEN" )
+      - name: Release gate
+        run: |
+          echo "Public runner builds private sources with a read-only token."
+          echo "No private source, build artifacts or health data are uploaded to Athlys9."
+          echo "Production aliases and Windows installers remain untouched."
