@@ -1,0 +1,28 @@
+name: Athlys live HTTP quick probe
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-live-http.yml]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - name: Query real production routes and CSS without browser
+        shell: bash
+        run: |
+          set -u
+          for site in athlys-v6-pwa.vercel.app athlys-v6-club.vercel.app; do
+            echo "=== $site ==="
+            for route in / /index.html /mobile.html /athlys-visual-charter-v1.css /athlys-brand-tokens-v4.css /sw.js; do
+              result=$(curl -sSL --max-time 12 -w '#CODE:%{http_code}#TYPE:%{content_type}#URL:%{url_effective}' "https://$site$route" || true)
+              echo "PATH $route META ${result##*#CODE:}"
+              echo "FIRST80 $(echo "$result" | head -c 80 | tr '\n' ' ')"
+              if [[ "$route" == "/" || "$route" == "/index.html" || "$route" == "/mobile.html" ]]; then
+                echo "$result" | grep -o 'athlys-visual-charter-v1.css[^" ]*' | head -2 || true
+              fi
+            done
+          done
