@@ -50,6 +50,7 @@ jobs:
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot
           disable-animations: true
           script: |
+            cat > /tmp/athlys-emulator-smoke.sh <<'ATHLYS_BASH'
             set -euo pipefail
             adb wait-for-device
             adb devices -l | tee qa/adb-devices.txt
@@ -64,7 +65,10 @@ jobs:
             test -s qa/android-launch.png
             adb logcat -d -v brief -t 3000 | grep -E 'AndroidRuntime|FATAL EXCEPTION|com.athlys.app' > qa/app-logcat.txt || :
             echo '{"status":"PASS","device_type":"EMULATOR","api_level":${{ matrix.api-level }},"scope":"APK install, launch, process and screenshot","physical_test":false,"jwt_test":false}' > qa/result.json
-      - name: Store emulator evidence even on failure
+                 
+            ATHLYS_BASH
+            bash /tmp/athlys-emulator-smoke.sh
+ - name: Store emulator evidence even on failure
         if: always()
         uses: actions/upload-artifact@v4
         with:
