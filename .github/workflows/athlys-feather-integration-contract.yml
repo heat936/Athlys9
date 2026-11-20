@@ -1,0 +1,37 @@
+name: Athlys FLM — integration and regression contracts
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/athlys-feather-integration-contract.yml']
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout pinned private Athlys QA
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 461688495cf13e30bcb382c8f2ec4e059779ab31
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - name: Confirm immutable Feather release candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "461688495cf13e30bcb382c8f2ec4e059779ab31"
+          test -f web/feather-runtime.js
+          test -f web/feather-assistant-expert.js
+          test -f web/feather-contract.js
+      - name: Run legacy and FLM compatibility suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check web/app.js
+          node --check web/feather-runtime.js
+          node --check web/feather-assistant-expert.js
+          node --test web/assistant-remote-only.test.cjs tests/athlys-local-intelligence.test.cjs tests/feather-assistant-integration.test.cjs web/quantum-remote-only.test.cjs web/health-summary-remote-only.test.cjs
+          echo "PASS: assistant, Feather, Quantum and health contract suite"
