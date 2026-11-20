@@ -1,0 +1,80 @@
+name: Athlys Field Beta — install and launch Android APK
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/athlys-field-beta-emulator.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  emulator:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Download exact successful candidate artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: athlys-field-beta-20261120-android-debug
+          run-id: 44750979935
+          github-token: ${{ github.token }}
+          path: candidate
+      - name: Verify artifact provenance and SHA-256
+        shell: bash
+        run: |
+          set -euo pipefail
+          find candidate -type f -maxdepth 8
+          APK="$(find candidate -name app-debug.apk -type f -print -quit)"
+          test -n "$APK"
+          test -s "$APK"
+          sha256sum -c candidate/candidate-android.sha256
+          sha256sum -c candidate/candidate-provenance.sha256
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path("candidate/candidate-provenance.json").read_text())
+          assert p["source_commit"]=="df38b49afa51ada3896f5f73cfc28550a49c5156"
+          assert p["run_id"]=="44750979935"
+          print("PASS: immutable source provenance")
+          PY
+          unzip -t "$APK" > /tmp/field-beta-apk-zip-test.txt
+          mkdir -p qa
+          cp candidate/candidate-provenance.json qa/candidate-provenance.json
+          echo "PASS: exact release APK passed archive and checksum checks"
+      - name: Enable KVM acceleration
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -r /dev/kvm && test -w /dev/kvm
+      - name: Android 14 install and foreground startup smoke
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          emulator-boot-timeout: 480
+          disable-animations: true
+          script: |
+            set -e
+            APK="$(find candidate -name app-debug.apk -type f -print -quit)"
+            adb install -r "$APK"
+            adb shell am start -n com.athlys.app/.MainActivity
+            sleep 18
+            adb shell pidof com.athlys.app | grep -Eq '[0-9]+'
+            adb shell dumpsys activity activities | grep -E 'com.athlys.app|MainActivity' > qa/android-foreground.txt
+            adb shell screencap -p /sdcard/athlys-field-beta.png
+            adb pull /sdcard/athlys-field-beta.png qa/android-launch.png
+            test -s qa/android-launch.png
+            echo "PASS: candidate installed, activity running, screenshot saved"
+      - name: Upload QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: athlys-field-beta-android-emulator-evidence
+          retention-days: 14
+          if-no-files-found: warn
+          path: qa/
