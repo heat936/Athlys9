@@ -115,6 +115,12 @@ jobs:
               assert detail['present_confirmed'] is True and detail['observed_rpe']==7
               assert detail['athlete_id']=='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2'
               assert not errs, f"Uncaught JavaScript errors: {errs}"
+              title_box=page.locator('#athlys .heading h1').bounding_box()
+              toast_box=page.locator('#athlys .toast').bounding_box() if page.locator('#athlys .toast').count() else None
+              if title_box and toast_box:
+                  overlapping=(title_box['x'] < toast_box['x']+toast_box['width'] and title_box['x']+title_box['width'] > toast_box['x'] and title_box['y'] < toast_box['y']+toast_box['height'] and title_box['y']+title_box['height'] > toast_box['y'])
+                  assert not overlapping, "Visual regression: success toast overlaps page title"
+              print("PASS heading and success notification do not overlap")
               diagnostic=page.evaluate("""() => {
                 const el=document.querySelector('#athlys .heading');
                 const nodes=[...document.elementsFromPoint(800,200)].slice(0,8);
