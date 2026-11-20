@@ -15,14 +15,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: 1ef075278bda56602fd522a004dd5f0df1c1bbad
+          ref: d8a4c72aa3bba96c21bf54b5bf518ff61bce4e34
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - name: Record immutable candidate provenance
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "1ef075278bda56602fd522a004dd5f0df1c1bbad"
+          test "$(git rev-parse HEAD)" = "d8a4c72aa3bba96c21bf54b5bf518ff61bce4e34"
           python3 - <<'PY'
           import json, os, subprocess
           from pathlib import Path
