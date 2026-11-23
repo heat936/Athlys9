@@ -1,0 +1,43 @@
+name: Athlys V10 — publish official Trajectoire opening
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-v10-trajectoire-media.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  media:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Retrieve the user-supplied Trajectoire MP4; validate byte identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 2 --max-time 60 --silent --show-error \
+            'https://at.adobe.com/FSZA3SfQBlZ7P9MZ' -o athlys-v10-trajectoire.mp4
+          test "$(stat -c %s athlys-v10-trajectoire.mp4)" -eq 212829
+          test "$(sha256sum athlys-v10-trajectoire.mp4 | cut -d' ' -f1)" = \
+            '78e80c868b6d4bb2b87d3248598d1943b48801f046cf603cfb2ddc8615408bef'
+          file athlys-v10-trajectoire.mp4 | grep -E 'ISO Media|MP4' >/dev/null
+          echo 'PASS: exact original user-provided Athlys Trajectoire film verified'
+      - name: Release verified movie for Web and Android QA
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view athlys-v10-trajectoire >/dev/null 2>&1; then
+            gh release upload athlys-v10-trajectoire athlys-v10-trajectoire.mp4 --clobber
+          else
+            gh release create athlys-v10-trajectoire athlys-v10-trajectoire.mp4 \
+              --title 'Athlys V10 — Trajectoire (animation utilisateur)' \
+              --notes 'Animation utilisateur originale, 3s, 1080x1920. SHA256 vérifiée. Pour ouverture mobile V10 et test de distribution.' \
+              --prerelease
+          fi
+          gh release view athlys-v10-trajectoire --json assets --jq '.assets[].name' | grep -qx athlys-v10-trajectoire.mp4
+          echo 'PASS: V10 Trajectoire video published as a verified media asset'
