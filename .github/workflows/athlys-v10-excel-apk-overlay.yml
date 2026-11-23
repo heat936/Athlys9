@@ -114,7 +114,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: athlys-v10-excel-overlay-qa
-          path: |\n            output/Athlys-V10-Excel-IRL.apk\n            output/SHA256SUMS.txt
+          path: |
+            output/Athlys-V10-Excel-IRL.apk
+            output/SHA256SUMS.txt
           retention-days: 21
           if-no-files-found: error
       - name: Publish distinct QA download only on successful verification
