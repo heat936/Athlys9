@@ -27,6 +27,7 @@ jobs:
         run: |
           set -euo pipefail
           cd package
+          sed -i 's#release/Athlys-V10-Test-Android.apk#Athlys-V10-Test-Android.apk#' SHA256SUMS.txt
           sha256sum -c SHA256SUMS.txt
           unzip -t Athlys-V10-Test-Android.apk >/dev/null
           test "$(stat -c %s Athlys-V10-Test-Android.apk)" -gt 1000000
