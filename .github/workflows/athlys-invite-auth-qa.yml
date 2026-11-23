@@ -1,0 +1,94 @@
+name: Athlys real Auth and RLS smoke - privacy safe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/athlys-invite-auth-qa.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  authenticated-rls:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: fix/coach-invitation-stability-20261123
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install test dependencies (no QA secrets in this step)
+        shell: bash
+        run: |
+          npm install --prefer-online --no-audit --no-fund >"$RUNNER_TEMP/athlys-auth-deps.log" 2>&1 || { echo "::error::INSTALL_FAILED"; exit 1; }
+      - name: Validate genuine JWTs and related RLS access
+        shell: bash
+        env:
+          ATHLYS_QA_COACH_EMAIL: ${{ secrets.ATHLYS_QA_COACH_EMAIL }}
+          ATHLYS_QA_COACH_PASSWORD: ${{ secrets.ATHLYS_QA_COACH_PASSWORD }}
+          ATHLYS_QA_ATHLETE_EMAIL: ${{ secrets.ATHLYS_QA_ATHLETE_EMAIL }}
+          ATHLYS_QA_ATHLETE_PASSWORD: ${{ secrets.ATHLYS_QA_ATHLETE_PASSWORD }}
+          ATHLYS_QA_OUTSIDER_EMAIL: ${{ secrets.ATHLYS_QA_OUTSIDER_EMAIL }}
+          ATHLYS_QA_OUTSIDER_PASSWORD: ${{ secrets.ATHLYS_QA_OUTSIDER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const assert=require('node:assert/strict');
+          const fs=require('node:fs');
+          const vm=require('node:vm');
+          const {createClient}=require('@supabase/supabase-js');
+          const names=['COACH','ATHLETE','OUTSIDER'];
+          const creds=names.map(name=>({
+            email:process.env['ATHLYS_QA_'+name+'_EMAIL'],
+            password:process.env['ATHLYS_QA_'+name+'_PASSWORD']
+          }));
+          if(creds.some(x=>!x.email||!x.password)){
+            console.log('BLOCKED: dedicated QA credentials incomplete; no production accounts created or modified');
+            process.exit(0);
+          }
+          const context={window:{}};
+          vm.runInNewContext(fs.readFileSync('web/app-config.js','utf8'),context,{timeout:1000});
+          const config=context.window.ATHLYS_CONFIG||{};
+          assert(/^https:\/\/[^/]+\.supabase\.co$/.test(config.url),'Expected Supabase project URL');
+          assert(typeof config.anonKey==='string'&&config.anonKey.length>20,'Publishable key absent');
+          const clients=creds.map(()=>createClient(config.url,config.anonKey,{auth:{autoRefreshToken:false,persistSession:false,detectSessionInUrl:false}}));
+          const run=async()=>{
+            const users=[];
+            for(let i=0;i<clients.length;i++){
+              const result=await clients[i].auth.signInWithPassword(creds[i]);
+              if(result.error||!result.data?.session?.access_token||!result.data?.user?.id)throw new Error('AUTH_QA_LOGIN_FAILED_ROLE_'+names[i]);
+              users.push(result.data.user);
+            }
+            const roles=['coach','athlete'];
+            for(let i=0;i<2;i++){
+              const q=await clients[i].from('profiles').select('id,role').eq('id',users[i].id).single();
+              if(q.error||q.data?.role!==roles[i])throw new Error('OWN_PROFILE_ROLE_MISMATCH_'+names[i]);
+            }
+            // Outsider must not read unrelated profiles or coach codes.
+            const strangerProfile=await clients[2].from('profiles').select('id').eq('id',users[0].id);
+            if(strangerProfile.error||strangerProfile.data?.length!==0)throw new Error('RLS_OUTSIDER_PROFILE_ACCESS');
+            const strangerCodes=await clients[2].from('coach_codes').select('id').eq('coach_id',users[0].id);
+            if(strangerCodes.error||strangerCodes.data?.length!==0)throw new Error('RLS_OUTSIDER_COACH_CODES_ACCESS');
+            const athleteCodes=await clients[1].from('coach_codes').select('id').eq('coach_id',users[0].id);
+            if(athleteCodes.error||athleteCodes.data?.length!==0)throw new Error('RLS_ATHLETE_COACH_CODES_ACCESS');
+            // Two read-only code lookups must return the same answer.
+            const a=await clients[0].rpc('get_my_coach_code');
+            const b=await clients[0].rpc('get_my_coach_code');
+            if(a.error||b.error||a.data!==b.data)throw new Error('COACH_CODE_READ_NOT_STABLE');
+            console.log('PASS: three live Supabase JWT sessions, role resolution, RLS denied-access, stable coach code read');
+          };
+          run().then(()=>Promise.all(clients.map(c=>c.auth.signOut()))).catch(e=>{
+            console.error('::error::'+(e.message||'AUTH_QA_ERROR').replace(/[^A-Z0-9_:\- ]/gi,''));
+            process.exitCode=1;
+          });
+          NODE
+      - name: No client secrets or artifacts published
+        if: always()
+        run: echo "Status-only QA; no source, access token, password or athlete data uploaded."
