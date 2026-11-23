@@ -1,0 +1,132 @@
+name: Athlys V10 FLM Quantum — isolated Android runtime QA release
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-flm-quantum-android-qa.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 659a665cc1b20eeb4581638f1bef5d309a5975c2
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+          path: source
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Verify science gate and download native APK baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = '659a665cc1b20eeb4581638f1bef5d309a5975c2'
+          test "$(gh run view 45278265630 --repo heat936/Athlys9 --json conclusion --jq '.conclusion')" = success
+          mkdir -p base generated output
+          gh release download athlys-v10-excel-paired-rpe-qa-20261123 --repo heat936/Athlys9 --pattern Athlys-V10-Excel-IRL.apk --dir base
+          gh release download athlys-v10-excel-paired-rpe-qa-20261123 --repo heat936/Athlys9 --pattern SHA256SUMS.txt --dir base
+          (cd base && sha256sum -c SHA256SUMS.txt)
+          unzip -t base/Athlys-V10-Excel-IRL.apk >/dev/null
+          unzip -p base/Athlys-V10-Excel-IRL.apk assets/public/app-config.js | grep -q 'avonfqgechvrnqxmbufn.supabase.co'
+          ! unzip -p base/Athlys-V10-Excel-IRL.apk assets/public/app-config.js | grep -q 'ixccwxonchzzjdjeajzw'
+      - name: Fetch version-pinned verified Wllama runtime outputs from scientific CI
+        uses: actions/download-artifact@v4
+        with:
+          name: athlys-flm-quantum-rd-evidence
+          run-id: 45278265630
+          github-token: ${{ github.token }}
+          path: generated
+      - name: Overlay only audited V10 Excel fixes and optional FLM runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile,ZIP_DEFLATED
+          src=Path('source/web')
+          runtime=Path('generated/web/athlys-light-lm-runtime')
+          if not runtime.exists():
+              runtime=Path('generated')
+          names=['assistant.js','wllama.wasm','model.json','wllama-LICENSE']
+          for name in names:
+              f=runtime/name
+              if not f.exists() or f.stat().st_size<100: raise SystemExit('MISSING_FLAVOR_RUNTIME_'+name)
+          assert (runtime/'wllama.wasm').stat().st_size>1000000
+          edits=['athlys-training-intelligence.js','athlys-excel-import.js','athlys-excel-import.css']
+          for name in edits:
+              assert (src/name).stat().st_size>100
+          old=Path('base/Athlys-V10-Excel-IRL.apk')
+          unsigned=Path('output/Athlys-V10-FLM-Quantum-unsigned.apk')
+          replacements={'assets/public/'+x for x in edits}
+          replacements|={'assets/public/athlys-light-lm-runtime/'+x for x in names}
+          with ZipFile(old,'r') as b,ZipFile(unsigned,'w') as out:
+              original=set(b.namelist())
+              assert 'assets/public/app-config.js' in original
+              assert 'assets/public/athlys-excel-import.js' in original
+              assert 'assets/public/assets/athlys-v10-trajectoire.mp4' in original
+              for info in b.infolist():
+                  if info.filename in replacements or info.filename.startswith('META-INF/'):continue
+                  out.writestr(info,b.read(info.filename))
+              for name in edits:out.write(src/name,arcname='assets/public/'+name,compress_type=ZIP_DEFLATED)
+              for name in names:out.write(runtime/name,arcname='assets/public/athlys-light-lm-runtime/'+name,compress_type=ZIP_DEFLATED)
+          with ZipFile(unsigned) as b:
+              assert replacements.issubset(b.namelist())
+              assert b'athlys-quantum' in b.read('assets/public/app.js')
+              assert b'completed:done===null?false:done' in b.read('assets/public/athlys-training-intelligence.js')
+              assert b'metrics.planned_rpe=r.plannedRpe' in b.read('assets/public/athlys-training-intelligence.js')
+              assert b'data-excel-page="next"' in b.read('assets/public/athlys-excel-import.js')
+              assert b'219309792' in b.read('assets/public/athlys-light-lm-runtime/model.json')
+              assert b'ixccwxonchzzjdjeajzw' not in b.read('assets/public/app-config.js')
+              assert not any(p.lower().endswith('.gguf') for p in b.namelist())
+          print('PASS Android FLM model runtime, original native staging app, Excel corrections; no model weights or production backend')
+          PY
+      - name: Zipalign and independently QA-sign the staged APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOOLS="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          "$TOOLS/zipalign" -f -p 4 output/Athlys-V10-FLM-Quantum-unsigned.apk output/Athlys-V10-FLM-Quantum.apk
+          keytool -genkeypair -noprompt -alias athlys_flm_quantum_qa -keystore "$RUNNER_TEMP/flm-quantum-qa.jks" \
+            -storepass QAandroid123 -keypass QAandroid123 -keyalg RSA -keysize 3072 -validity 7 \
+            -dname 'CN=Athlys V10 FLM Quantum Staging QA, O=Athlys, C=FR' >/dev/null 2>&1
+          "$TOOLS/apksigner" sign --ks "$RUNNER_TEMP/flm-quantum-qa.jks" --ks-key-alias athlys_flm_quantum_qa \
+            --ks-pass pass:QAandroid123 --key-pass pass:QAandroid123 --v1-signing-enabled true --v2-signing-enabled true \
+            output/Athlys-V10-FLM-Quantum.apk
+          "$TOOLS/apksigner" verify --verbose output/Athlys-V10-FLM-Quantum.apk | grep -q 'Verified using v2 scheme.*true'
+          "$TOOLS/zipalign" -c -p 4 output/Athlys-V10-FLM-Quantum.apk
+          unzip -t output/Athlys-V10-FLM-Quantum.apk >/dev/null
+          (cd output && sha256sum Athlys-V10-FLM-Quantum.apk > SHA256SUMS.txt)
+          echo 'PASS signed FLM Quantum Android QA, no Gradle dependency download'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: athlys-v10-flm-quantum-android-qa
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            output/Athlys-V10-FLM-Quantum.apk
+            output/SHA256SUMS.txt
+      - name: Release staged FLM / Quantum debug APK immutably
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=athlys-v10-flm-quantum-qa-20261123
+          if gh release view "$TAG" --repo heat936/Athlys9 >/dev/null 2>&1; then
+            echo 'Immutable QA release exists; not overwriting'
+          else
+            gh release create "$TAG" --repo heat936/Athlys9 \
+              output/Athlys-V10-FLM-Quantum.apk output/SHA256SUMS.txt \
+              --title 'Athlys V10 FLM + Quantum 0.3 — APK Android de recette' \
+              --notes 'PRÉVERSION QA : fichier Excel intelligent + RPE prévu/observé + runtime local FLM2.5-350M en version Wllama, sans poids GGUF embarqués. Le LFM doit être importé volontairement depuis sa source officielle ; il ne peut pas écrire des séances ni poser de diagnostic. Quantum 0.3 s’exécute sur Supabase2 staging avec JWT et consentement de partage coach. Signature debug, package de recette existant com.athlys.v10irlqa : désinstaller uniquement son ancienne variante QA avant installation, conserver Athlys production/V9. Aucune donnée sensible réelle, aucun GO global JWT/synchronisation Android-PC. Web staging : https://athlys-v10-irl-staging.vercel.app/app.html.' \
+              --prerelease
+          fi
+          gh release view "$TAG" --repo heat936/Athlys9 --json assets --jq '.assets[].name' | grep -qx Athlys-V10-FLM-Quantum.apk
+          echo 'PASS isolated QA APK release downloadable'
