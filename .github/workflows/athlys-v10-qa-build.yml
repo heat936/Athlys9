@@ -145,6 +145,55 @@ jobs:
           PY
           echo "PASS: isolated Android package com.athlys.v10preview version 10.0.0-rc1"
 
+      - name: Apply official Athlys visual identity to the Android native splash
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s web/assets/athlys-logo.png
+          test -s web/assets/athlys-logo.webp
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,shutil
+          res=Path('android/app/src/main/res')
+          # The OS splash can appear before the WebView's 3-second intro.
+          # Replace every generated Capacitor launcher raster with the brand asset.
+          replaced=0
+          for file in res.rglob('*'):
+              if not file.is_file() or not file.name.startswith('ic_launcher'):
+                  continue
+              if file.suffix=='.png':
+                  shutil.copyfile('web/assets/athlys-logo.png',file)
+                  replaced+=1
+              elif file.suffix=='.webp':
+                  shutil.copyfile('web/assets/athlys-logo.webp',file)
+                  replaced+=1
+          # Capacitor's launch resource is a drawable, distinct from the app icon.
+          for p in res.glob('drawable*/splash.png'):
+              p.unlink()
+          target=res/'drawable'/'splash.webp'
+          target.parent.mkdir(parents=True,exist_ok=True)
+          shutil.copyfile('web/assets/athlys-logo.webp',target)
+          icon=res/'drawable-nodpi'/'athlys_v10_splash_icon.webp'
+          icon.parent.mkdir(parents=True,exist_ok=True)
+          shutil.copyfile('web/assets/athlys-logo.webp',icon)
+          # Android 12+ uses the platform window-splash theme before the WebView.
+          styles=0
+          for file in res.glob('values*/styles.xml'):
+              original=file.read_text()
+              pattern=r'(<style\s+name="AppTheme.NoActionBarLaunch"[^>]*>)'
+              if not re.search(pattern,original):
+                  continue
+              add=('\\n        <item name="android:windowSplashScreenBackground">#13213c</item>'
+                   '\\n        <item name="android:windowSplashScreenAnimatedIcon">@drawable/athlys_v10_splash_icon</item>'
+                   '\\n        <item name="android:windowSplashScreenIconBackgroundColor">#13213c</item>')
+              updated,n=re.subn(pattern,lambda m:m.group(1)+add,original,count=1)
+              if n: file.write_text(updated.replace('\\n','\\n'))
+              styles+=n
+          if replaced==0 or styles==0:
+              raise SystemExit('Athlys launcher icon/theme assets were not applied')
+          print('PASS: branded Android icon rasters, drawable splash and launch theme; icons:',replaced,'styles:',styles)
+          PY
+
       - name: Build and validate signed debug QA APK
         shell: bash
         run: |
