@@ -34,7 +34,8 @@ jobs:
             const content={};
             for(const p of pages){
               const {response,body}=await fetchStaged(p);content[p]=body;
-              assert(body.length>40,p+" too short");
+              assert(body.length>(p==='/robots.txt'?8:40),p+" too short");
+              if(p==='/robots.txt')assert(body.includes('Disallow: /'),'robots privacy rule missing');
               console.log('PASS asset '+p+' length='+body.length);
               if(p==='/app.html'){
                 assert((response.headers.get('x-robots-tag')||'').includes('noindex'),'staging noindex missing');
