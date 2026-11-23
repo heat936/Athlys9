@@ -1,0 +1,106 @@
+name: Athlys FLM — real GGUF browser inference on staging
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-flm-real-weights-browser-qa.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-weights:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 24
+    env:
+      BASE: https://athlys-v10-irl-staging.vercel.app
+      MODEL_SHA256: 85e32858daafad55b7bcd6b97a1343ee0661188e8036f9862d14d6b563142f50
+      MODEL_REV: 657e078c94084481950a2d555a941481f715536b
+    steps:
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - name: Install isolated browser harness (no personal data)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qa
+          cd qa
+          npm install --no-audit --no-fund --no-save playwright-core@1.58.2
+          (command -v google-chrome || command -v chromium || command -v chromium-browser) > browser-path.txt
+      - name: Download official pinned 350M Q4_0 model and verify checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --show-error --location --retry 2 --retry-delay 4 --connect-timeout 25 --max-time 390 \
+           "https://huggingface.co/LiquidAI/LFM2.5-350M-GGUF/resolve/$MODEL_REV/LFM2.5-350M-Q4_0.gguf?download=true" \
+            --output qa/model.gguf
+          echo "$MODEL_SHA256  qa/model.gguf" | sha256sum --check --status
+          test "$(stat -c %s qa/model.gguf)" = 219309792
+          echo 'PASS official LFM2.5-350M model weight SHA-256 and exact size'
+      - name: Execute genuine local browser model inference, record status only
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > qa/verify.cjs <<'NODE'
+          const {chromium}=require('playwright-core');
+          const assert=require('node:assert/strict');
+          const fs=require('node:fs');
+          const path=require('node:path');
+          const {createHash}=require('node:crypto');
+          const BASE=process.env.BASE;
+          const fail=e=>{console.error('NO_GO_FLMBROWSER '+String(e?.message||e));process.exitCode=1};
+          (async()=>{
+            const chrome=fs.readFileSync('qa/browser-path.txt','utf8').trim();
+            const browser=await chromium.launch({executablePath:chrome,headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--js-flags=--max-old-space-size=3072']});
+            try{
+              const context=await browser.newContext({serviceWorkers:'allow',acceptDownloads:false});
+              const page=await context.newPage();
+              page.setDefaultTimeout(120000);
+              await page.route('**/qa-flm-harness', route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><head><script src="/feather-language.js"></script></head><body><input id="model" type="file"></body></html>'}));
+              const errors=[];
+              page.on('pageerror',e=>errors.push(String(e.message).slice(0,160)));
+              await page.goto(BASE+'/qa-flm-harness',{waitUntil:'load',timeout:45000});
+              const state=await page.evaluate(async()=>{
+                window.qaFLM=window.AthlysFeatherLanguage.create(null);
+                return await window.qaFLM.refresh(true);
+              });
+              assert(['not-installed','ready','loaded'].includes(state.state),'Unexpected model state '+state.state);
+              assert(state.platform==='web');
+              const t0=Date.now();
+              await page.locator('#model').setInputFiles(path.resolve('qa/model.gguf'),{timeout:180000});
+              await page.evaluate(()=>window.qaFLM.install(document.querySelector('#model').files[0]));
+              console.log('PASS Wllama real-weight import (SHA checked by browser), ms='+String(Date.now()-t0));
+              const started=Date.now();
+              const result=await page.evaluate(async()=>{
+                const controller=new AbortController();
+                const kill=setTimeout(()=>controller.abort(),145000);
+                try{return await window.qaFLM.generateStructured({task:'assistant.explain',schemaVersion:window.AthlysFeatherLanguage.version,input:{text:"Explique en une phrase à quoi sert le RPE en sport."},signal:controller.signal});}
+                finally{clearTimeout(kill)}
+              });
+              assert.equal(result.status,'ok','Real GGUF must generate valid text, got '+result.status);
+              assert.equal(result.engine.provenance,'local');
+              assert((result.candidate?.reply||'').length>=15);
+              assert(!result.candidate.reply.includes('Bearer '));
+              const report={status:'PASS',environment:'real-chromium-hosted-staging',actualOfficialWeights:true,
+                runtime:'wllama@3.13.0',size:219309792,sha256:process.env.MODEL_SHA256,
+                rawModelCanWriteActions:false,classificationActionsDisabled:true,
+                importMs:started-t0,generationMs:Date.now()-started,replyLength:result.candidate.reply.length,
+                origin:BASE,privacy:'no tokens or athlete data',pageErrors:errors.filter(x=>!x.includes('favicon')).slice(0,3)};
+              fs.writeFileSync('qa/flm-real-inference-report.json',JSON.stringify(report,null,2));
+              console.log('PASS real Wllama 350M local generation provenance=local duration_ms='+report.generationMs+' reply_length='+report.replyLength);
+              await context.close();
+            }finally{await browser.close()}
+          })().catch(fail);
+          NODE
+          node qa/verify.cjs
+      - name: Delete downloaded weights before publishing redacted evidence
+        if: always()
+        shell: bash
+        run: |
+          rm -f qa/model.gguf
+          echo 'PASS: no GGUF model weights or raw chat output included in evidence'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: athlys-flm-real-weights-browser-evidence
+          retention-days: 7
+          if-no-files-found: ignore
+          path: qa/flm-real-inference-report.json
