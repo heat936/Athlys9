@@ -1,0 +1,64 @@
+name: Athlys V10 IRL staging — verified QA APK prerelease
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/athlys-v10-irl-staging-download.yml
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require successful Android 14 staging emulator test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(gh run view 45258372184 --json conclusion --jq '.conclusion')" = success
+          echo 'PASS: Android 14 staging online and offline smoke completed'
+      - name: Download precisely identified staging QA APK
+        uses: actions/download-artifact@v4
+        with:
+          name: athlys-v10-irl-staging-qa
+          run-id: 45257657841
+          github-token: ${{ github.token }}
+          path: package
+      - name: Verify SHA-256 and confirm staging-only assets and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd package
+          sed -i 's#release/Athlys-V10-IRL-Staging.apk#Athlys-V10-IRL-Staging.apk#' SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
+          unzip -t Athlys-V10-IRL-Staging.apk >/dev/null
+          test "$(stat -c %s Athlys-V10-IRL-Staging.apk)" -gt 1000000
+          unzip -Z1 Athlys-V10-IRL-Staging.apk | grep -q 'assets/public/assets/athlys-v10-trajectoire.mp4'
+          unzip -p Athlys-V10-IRL-Staging.apk assets/public/app-config.js | grep -q 'avonfqgechvrnqxmbufn.supabase.co'
+          ! unzip -p Athlys-V10-IRL-Staging.apk assets/public/app-config.js | grep -q 'ixccwxonchzzjdjeajzw'
+          echo 'PASS: isolated QA APK integrity, staging backend and offline opening assets'
+      - name: Publish verified staging prerelease (debug signature, no production)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG=athlys-v10-irl-staging-qa-20261123
+          test ! -z "$TAG"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo 'Prerelease already exists — do not replace signed assets without a new tag'
+          else
+            gh release create "$TAG" \
+              package/Athlys-V10-IRL-Staging.apk package/SHA256SUMS.txt \
+              --title 'Athlys V10 — staging APK pour essais terrain fictifs' \
+              --notes 'PRÉVERSION DE RECETTE : données fictives uniquement, aucun vrai suivi de santé ni mineur. APK signé debug, package distinct com.athlys.v10irlqa, backend isolé Supabase Athlys2 staging. Animation Trajectoire et Supabase JS local. Android 14 démarrage et mode avion vérifiés (run 45258372184). Les vrais JWT multi-comptes, RLS négatifs E2E et synchronisation Android/Web restent à démontrer avant essais avec données personnelles sensibles. Web de recette : https://athlys-v10-irl-staging.vercel.app/app.html. Guide : https://github.com/heat936/Athlys9/blob/main/pilot-v10-irl/README.md.' \
+              --prerelease
+          fi
+          gh release view "$TAG" --json assets --jq '.assets[].name' | grep -qx Athlys-V10-IRL-Staging.apk
+          echo 'PASS: QA prerelease asset available'
