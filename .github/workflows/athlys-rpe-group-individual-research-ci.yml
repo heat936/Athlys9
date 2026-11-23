@@ -1,0 +1,63 @@
+name: Athlys RPE group and individual research — private source QA
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-rpe-group-individual-research-ci.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  research-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      SOURCE_SHA: 96cd93435c85c5d82708bea8ae9c95b2d4ebc6f3
+    steps:
+      - name: Checkout exact authorized private Athlys source without persistence
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 96cd93435c85c5d82708bea8ae9c95b2d4ebc6f3
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify frozen source and RPE research boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          grep -q 'research_only' web/athlys-rpe-two-stage.js
+          grep -q 'sport_not_validated' web/athlys-rpe-two-stage.js
+          grep -q 'pre_session_only' web/athlys-rpe-two-stage.js
+          ! grep -q 'validated_95_percent' web/athlys-rpe-two-stage.js
+          node --check web/athlys-rpe-two-stage.js
+          node --check ml/athlys_intelligence/rpe_two_stage_cli.cjs
+          node --check tests/athlys-rpe-two-stage.test.cjs
+      - name: Execute two-stage regression and safety tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test tests/athlys-rpe-two-stage.test.cjs
+          node --test tests/athlys-rpe-semantic-v11.test.cjs
+      - name: Execute full existing test suite and build Web (no deployment)
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm test
+          npm run build:web
+      - name: Confirm research artefacts are non-production and do not include raw rows
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const m=JSON.parse(fs.readFileSync('ml/research/rpe-soccermon-prior-only-20261124.json','utf8'));
+          if(m.artifact.stage!=='research_only'||m.artifact.trained_sports.join(',')!=='soccer')throw Error('Invalid research status');
+          if(m.report.test_seen_group.n!==1644||m.report.test_unseen_group.n!==677)throw Error('Mismatch with frozen benchmark');
+          console.log('Research-only artefact, cohort counts and sport restriction verified');
+          NODE
+          echo 'No source, model, secret or health record artifacts uploaded to public repository'
