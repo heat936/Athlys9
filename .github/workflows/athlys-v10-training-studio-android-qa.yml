@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: f2d72f624b5f853f338512715e7fe34dfc9d36f8
+          ref: d32f4fb4e10db271c95cb6a9f4041b58e55ab33c
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -34,7 +34,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "f2d72f624b5f853f338512715e7fe34dfc9d36f8"
+          test "$(git rev-parse HEAD)" = "d32f4fb4e10db271c95cb6a9f4041b58e55ab33c"
           node --check web/app.js
           node --check web/mobile-opening-v10.js
           node --check web/mobile.js
