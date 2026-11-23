@@ -12,8 +12,6 @@ jobs:
     timeout-minutes: 15
     env:
       EXPECTED_SHA: e12daba003207f92603cb64ce225ab003dfd15de
-      ATHLYS_QA_SERVICE_ROLE_KEY: ${{ secrets.ATHLYS_QA_SERVICE_ROLE_KEY }}
-      ATHLYS_QA_EMAIL_DOMAIN: athlys.test
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,6 +36,9 @@ jobs:
           echo "PASS: pinned V10 source and QA scripts compiled and unit-tested"
       - name: Create temporary Auth users via official Admin API, validate JWT/RLS, always delete
         shell: bash
+        env:
+          ATHLYS_QA_SERVICE_ROLE_KEY: ${{ secrets.ATHLYS_QA_SERVICE_ROLE_KEY }}
+          ATHLYS_QA_EMAIL_DOMAIN: athlys.test
         run: |
           set -euo pipefail
           test -n "$ATHLYS_QA_SERVICE_ROLE_KEY" || {
