@@ -1,0 +1,137 @@
+name: Athlys V10 Excel — APK overlay without Gradle Maven dependencies
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/athlys-v10-excel-apk-overlay.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  signed-qa:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      SOURCE_SHA: 43f384a9c5d501b638b046fefe6550a8580de389
+      BASE_RELEASE: athlys-v10-irl-staging-qa-20261123
+    steps:
+      - name: Checkout exact Athlys V10 Excel branch source
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 43f384a9c5d501b638b046fefe6550a8580de389
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Download immutable verified V10 staging APK without rebuilding native dependencies
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$SOURCE_SHA"
+          test -f candidate/web/athlys-excel-import.js
+          mkdir -p base output
+          gh release download "$BASE_RELEASE" --repo heat936/Athlys9 --pattern 'Athlys-V10-IRL-Staging.apk' --dir base
+          gh release download "$BASE_RELEASE" --repo heat936/Athlys9 --pattern 'SHA256SUMS.txt' --dir base
+          (cd base && sed 's#release/Athlys-V10-IRL-Staging.apk#Athlys-V10-IRL-Staging.apk#' SHA256SUMS.txt | sha256sum -c -)
+          unzip -t base/Athlys-V10-IRL-Staging.apk > /dev/null
+          unzip -p base/Athlys-V10-IRL-Staging.apk assets/public/app-config.js | grep -q 'avonfqgechvrnqxmbufn.supabase.co'
+          ! unzip -p base/Athlys-V10-IRL-Staging.apk assets/public/app-config.js | grep -q 'ixccwxonchzzjdjeajzw'
+          echo 'PASS verified immutable native V10 base APK and staging backend'
+      - name: Patch only audited offline Web assets into existing QA APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+          source=Path("candidate/web")
+          overlay=[
+            "athlys-training-intelligence.js",
+            "athlys-xlsx-reader.js",
+            "athlys-excel-import.js",
+            "athlys-excel-import.css",
+            "app.html",
+            "mobile.html",
+            "index.html",
+            "app.js",
+            "sw.js",
+          ]
+          allowed={"assets/public/"+name for name in overlay}
+          for name in overlay:
+              p=source/name
+              if not p.is_file() or p.stat().st_size<40: raise SystemExit("MISSING_OVERLAY_"+name)
+          old=Path("base/Athlys-V10-IRL-Staging.apk")
+          target=Path("output/Athlys-V10-Excel-IRL-unsigned.apk")
+          with ZipFile(old,"r") as src, ZipFile(target,"w",allowZip64=False) as dst:
+              names=set(src.namelist())
+              for name in ["assets/public/app.js","assets/public/mobile.html","assets/public/app-config.js","assets/public/assets/athlys-v10-trajectoire.mp4"]:
+                  if name not in names: raise SystemExit("MISSING_NATIVE_BASE_"+name)
+              for info in src.infolist():
+                  if info.filename in allowed or info.filename.startswith("META-INF/"): continue
+                  dst.writestr(info,src.read(info.filename))
+              for name in overlay:
+                  dst.write(source/name,arcname="assets/public/"+name,compress_type=ZIP_DEFLATED)
+          with ZipFile(target) as check:
+              paths=set(check.namelist())
+              assert allowed<=paths,sorted(allowed-paths)
+              assert "assets/public/assets/athlys-v10-trajectoire.mp4" in paths
+              assert b"avonfqgechvrnqxmbufn.supabase.co" in check.read("assets/public/app-config.js")
+              assert b"ixccwxonchzzjdjeajzw" not in check.read("assets/public/app-config.js")
+              assert b"athlys-excel-import.js" in check.read("assets/public/mobile.html")
+              assert b"athlys-excel-import.js" in check.read("assets/public/app.html")
+              assert b"completed:done===null?false:done" in check.read("assets/public/athlys-training-intelligence.js")
+          print("PASS overlay 9 audited Web assets, preserving existing native binaries, trajectory intro and staging settings")
+          PY
+      - name: Zipalign and independently debug-sign QA APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOOLS="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          test -x "$TOOLS/zipalign"
+          test -x "$TOOLS/apksigner"
+          "$TOOLS/zipalign" -f -p 4 output/Athlys-V10-Excel-IRL-unsigned.apk output/Athlys-V10-Excel-IRL.apk
+          keytool -genkeypair -noprompt -alias athlys_excel_qa \
+            -keystore "$RUNNER_TEMP/athlys-v10-excel-qa.jks" -storepass androidqa1234 -keypass androidqa1234 \
+            -keyalg RSA -keysize 3072 -validity 7 -dname 'CN=Athlys V10 Excel Staging QA, OU=Testing, O=Athlys, C=FR' >/dev/null 2>&1
+          "$TOOLS/apksigner" sign \
+            --ks "$RUNNER_TEMP/athlys-v10-excel-qa.jks" \
+            --ks-key-alias athlys_excel_qa \
+            --ks-pass pass:androidqa1234 --key-pass pass:androidqa1234 \
+            --v1-signing-enabled true --v2-signing-enabled true \
+            output/Athlys-V10-Excel-IRL.apk
+          "$TOOLS/apksigner" verify --verbose --print-certs output/Athlys-V10-Excel-IRL.apk | grep -E 'Verified using v[12] scheme|Signer #1 certificate'
+          "$TOOLS/zipalign" -c -p 4 output/Athlys-V10-Excel-IRL.apk
+          unzip -t output/Athlys-V10-Excel-IRL.apk > /dev/null
+          (cd output && sha256sum Athlys-V10-Excel-IRL.apk > SHA256SUMS.txt)
+          test "$(stat -c %s output/Athlys-V10-Excel-IRL.apk)" -gt 1000000
+          echo 'PASS Android V10 Excel QA APK aligned, signed and SHA-256 computed'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: athlys-v10-excel-overlay-qa
+          path: |\n            output/Athlys-V10-Excel-IRL.apk\n            output/SHA256SUMS.txt
+          retention-days: 21
+          if-no-files-found: error
+      - name: Publish distinct QA download only on successful verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG=athlys-v10-excel-overlay-qa-20261123
+          if gh release view "$TAG" --repo heat936/Athlys9 >/dev/null 2>&1; then
+            echo 'Existing immutable QA release preserved'
+          else
+            gh release create "$TAG" --repo heat936/Athlys9 \
+              output/Athlys-V10-Excel-IRL.apk output/SHA256SUMS.txt \
+              --title 'Athlys V10 Excel — APK de recette sans Gradle' \
+              --notes 'APK de test V10 Expo Excel construit à partir de l’APK V10 existant, avec neuf fichiers Web vérifiés remplacés. Signature de QA différente du précédent APK : désinstaller uniquement com.athlys.v10irlqa avant installation, sans toucher Athlys V9 ou à la production. Backend Supabase2 staging, données fictives seulement. Aucun GO JWT coach/athlète/tiers ni synchronisation physique prouvé. Le classeur Excel est lu localement ; consentement pour candidat ML uniquement par l’athlète, pas de formation automatique de modèle.' \
+              --prerelease
+          fi
+          gh release view "$TAG" --repo heat936/Athlys9 --json assets --jq '.assets[].name' | grep -qx 'Athlys-V10-Excel-IRL.apk'
+          echo 'PASS immutable QA APK downloadable'
