@@ -16,7 +16,7 @@ jobs:
           node-version: '22'
       - name: Verify real remote preview assets and privacy boundaries
         env:
-          BASE: https://athlys-v10-irl-staging-ng64bljgq-adiceamlilian-6530.vercel.app
+          BASE: https://athlys-v10-irl-staging.vercel.app
         run: |
           set -euo pipefail
           node <<'NODE'
