@@ -51,5 +51,6 @@ jobs:
               --notes 'APK Android V10 de test, package com.athlys.v10studioqa. Animation Trajectoire originale intégrée hors ligne. SDK Supabase intégré localement, connexion initialisée avec délai borné, démarrage vérifié. Signature debug différente de v9 ; installation parallèle. Ne pas considérer cette APK comme une mise à jour de production ni comme une validation complète des connexions Supabase réelles.' \
               --prerelease
           fi
+          gh release edit athlys-v10-training-studio-qa --notes 'Athlys V10 Training Studio — préversion de recette Android, package isolé com.athlys.v10studioqa, signature debug différente de la v9. L’animation Trajectoire d’origine et le SDK Supabase sont inclus localement. Tests de code, compilation et lancement sur Android 14 réalisés ; contrôle réseau coupé en cours de validation. Installation parallèle uniquement ; ne garantit pas la synchronisation authentifiée entre deux appareils ni le GO production.'
           gh release view athlys-v10-training-studio-qa --json assets --jq '.assets[].name' | grep -qx Athlys-V10-Training-Studio-QA.apk
           echo 'PASS: public QA APK download available'
