@@ -1,0 +1,48 @@
+name: Athlys QA — real GoTrue JWT, RLS and coach-athlete cross-session sync via GitHub OIDC
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-qa-oidc-real-jwt-e2e.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  real-auth-sync:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    env:
+      EXPECTED_SHA: 7dec0a328d6689f0f6fd8b1842402f41387d4841
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 7dec0a328d6689f0f6fd8b1842402f41387d4841
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - name: Verify staging-only source and official Auth QA test (no service-role key)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          grep -q 'avonfqgechvrnqxmbufn.supabase.co' web/app-config.js
+          ! grep -q 'ixccwxonchzzjdjeajzw.supabase.co' web/app-config.js
+          test -z "${ATHLYS_QA_SERVICE_ROLE_KEY:-}"
+          node --check tests/athlys-oidc-real-jwt-ci.cjs
+          node --check tests/athlys-real-supabase-auth-qa.cjs
+          npm install --ignore-scripts --no-audit --no-fund >/tmp/qa-oidc-install.log 2>&1
+          echo 'PASS official staging source and no admin secret required on GitHub'
+      - name: Issue GitHub signed OIDC JWT, create QA GoTrue identities, verify RLS and cross-session sync, delete every identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tests/athlys-oidc-real-jwt-ci.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: athlys-real-jwt-oidc-cross-session-receipt
+          retention-days: 7
+          if-no-files-found: ignore
+          path: qa-evidence/oidc-real-jwt-results.json
