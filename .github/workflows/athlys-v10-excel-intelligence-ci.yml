@@ -1,0 +1,51 @@
+name: Athlys V10 Excel Intelligence — static tests and web build
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-v10-excel-intelligence-ci.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  excel:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      EXPECTED_SHA: 01d33c71fd25ffc98589c8262c3ab972bacbec59
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 01d33c71fd25ffc98589c8262c3ab972bacbec59
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify source and syntax of local Excel intelligence
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          for file in web/athlys-training-intelligence.js web/athlys-xlsx-reader.js web/athlys-excel-import.js web/app.js web/sw.js; do
+            node --check "$file"
+          done
+          for entry in web/app.html web/mobile.html web/index.html; do
+            grep -q 'athlys-excel-import.js' "$entry"
+            grep -q 'athlys-training-intelligence.js' "$entry"
+          done
+          grep -q 'athlys-training-intelligence.test.cjs' package.json
+          test ! -e web/athlys-excel-import.bundle.js
+      - name: Run unit and regression tests
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm test
+      - name: Build existing Supabase Web bundle and validate assets
+        run: |
+          set -euo pipefail
+          npm run build:web
+          test -s web/supabase-client.bundle.js
+          test -s web/athlys-xlsx-reader.js
+          test -s web/athlys-excel-import.js
+          test -s web/athlys-excel-import.css
+          echo "PASS Excel import integrated without new server/CDN dependency"
