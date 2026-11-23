@@ -1,0 +1,54 @@
+name: Athlys V10 Trajectoire — public QA APK download
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-v10-trajectoire-download.yml]
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download exact V10 branded QA build
+        uses: actions/download-artifact@v4
+        with:
+          name: athlys-v10-qa-android
+          run-id: 45225038356
+          github-token: ${{ github.token }}
+          path: package
+      - name: Verify signed QA APK and attach clear release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd package
+          sha256sum -c SHA256SUMS.txt
+          unzip -t Athlys-V10-Test-Android.apk >/dev/null
+          test "$(stat -c %s Athlys-V10-Test-Android.apk)" -gt 1000000
+          unzip -Z1 Athlys-V10-Test-Android.apk | grep 'assets/public/assets/athlys-v10-trajectoire.mp4' >/dev/null
+          mv Athlys-V10-Test-Android.apk Athlys-V10-Trajectoire-QA.apk
+          sed -i 's/Athlys-V10-Test-Android.apk/Athlys-V10-Trajectoire-QA.apk/g' SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
+          echo 'PASS: exact GitHub Actions candidate checksum verified'
+      - name: Publish V10 QA APK as prerelease (no source or secrets)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view athlys-v10-trajectoire-qa >/dev/null 2>&1; then
+            gh release upload athlys-v10-trajectoire-qa package/Athlys-V10-Trajectoire-QA.apk package/SHA256SUMS.txt --clobber
+          else
+            gh release create athlys-v10-trajectoire-qa \
+              package/Athlys-V10-Trajectoire-QA.apk package/SHA256SUMS.txt \
+              --title 'Athlys V10 Trajectoire — APK de recette Android' \
+              --notes 'APK Android V10 de test, package com.athlys.v10preview. Animation Trajectoire originale intégrée hors ligne. Correctif du chargement et des délais de connexion. Signature debug différente de v9 ; installation parallèle. Ne pas considérer cette APK comme une mise à jour de production ni comme une validation complète des connexions Supabase réelles.' \
+              --prerelease
+          fi
+          gh release view athlys-v10-trajectoire-qa --json assets --jq '.assets[].name' | grep -qx Athlys-V10-Trajectoire-QA.apk
+          echo 'PASS: public QA APK download available'
