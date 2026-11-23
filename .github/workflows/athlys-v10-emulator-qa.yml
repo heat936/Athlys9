@@ -20,7 +20,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: athlys-v10-qa-android
-          run-id: 45222594874
+          run-id: 45225038356
           github-token: ${{ github.token }}
           path: candidate
 
@@ -36,7 +36,7 @@ jobs:
           unzip -Z1 candidate/Athlys-V10-Test-Android.apk | grep -q 'assets/public/mobile-opening-v10.js'
           unzip -Z1 candidate/Athlys-V10-Test-Android.apk | grep -q 'assets/public/mobile-opening-v10.css'
           mkdir -p qa
-          printf 'source-artifact=45222594874\nsha256=%s\n' "$actual" > qa/manifest.txt
+          printf 'source-artifact=45225038356\nsha256=%s\n' "$actual" > qa/manifest.txt
           echo 'PASS: isolated V10 APK verified before emulator'
 
       - name: Enable KVM for emulator where available
@@ -71,7 +71,10 @@ jobs:
           sleep 2
           adb shell screencap -p /sdcard/athlys-v10-opening.png
           adb pull /sdcard/athlys-v10-opening.png qa/launch-opening.png >/dev/null
-          sleep 9
+          sleep 2
+          adb shell screencap -p /sdcard/athlys-v10-transition.png
+          adb pull /sdcard/athlys-v10-transition.png qa/launch-transition.png >/dev/null
+          sleep 7
           adb shell screencap -p /sdcard/athlys-v10-postloading.png
           adb pull /sdcard/athlys-v10-postloading.png qa/launch-postloading.png >/dev/null
           adb shell dumpsys activity activities | grep 'com.athlys.v10preview' > qa/foreground.txt || true
