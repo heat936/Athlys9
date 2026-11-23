@@ -113,8 +113,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Maven Central can respond HTTP 429 on shared runners. Use Google's
+          # public Maven Central mirror first, preserving Maven Central fallback.
+          python3 - <<'PY'
+          from pathlib import Path
+          for filename in ('android/build.gradle','android/settings.gradle','android/app/build.gradle'):
+              p=Path(filename)
+              if not p.exists(): continue
+              source=p.read_text()
+              source=source.replace('mavenCentral()',"""maven { url 'https://maven-central.storage-download.googleapis.com/maven2/' }
+                  mavenCentral()""")
+              p.write_text(source)
+          PY
           chmod +x android/gradlew
-          if ! (cd android && ./gradlew assembleDebug --no-daemon) >"$RUNNER_TEMP/v10-android.log" 2>&1; then
+          if ! (cd android && ./gradlew assembleDebug --no-daemon --refresh-dependencies) >"$RUNNER_TEMP/v10-android.log" 2>&1; then
             tail -n 70 "$RUNNER_TEMP/v10-android.log" | sed -E 's/(token|password|secret|key)[=:][^[:space:]]+/\1=[redacted]/gi'
             echo "::error::V10_ANDROID_BUILD_FAILED"; exit 1
           fi
