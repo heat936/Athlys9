@@ -64,3 +64,5 @@ jobs:
           path: |
             web/athlys-light-lm-runtime/model.json
             web/athlys-light-lm-runtime/wllama-LICENSE
+            web/athlys-light-lm-runtime/wllama.wasm
+            web/athlys-light-lm-runtime/assistant.js
