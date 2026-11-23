@@ -25,7 +25,7 @@ jobs:
           const crypto=require("node:crypto"),assert=require("node:assert/strict");
           const base=process.env.ATHLYS_QA_STAGE_URL,apiKey=process.env.ATHLYS_QA_STAGE_KEY;
           const tag=process.env.GITHUB_RUN_ID,accounts=["coach","athlete","outsider"].map(role=>({
-           role,email:"athlys-qa-"+tag+"-"+role+"@example.com",password:crypto.randomBytes(30).toString("base64url")
+           role,email:"athlys-qa-"+tag+"-"+role+"@gmail.com",password:crypto.randomBytes(30).toString("base64url")
           }));
           const headers={"apikey":apiKey,"Content-Type":"application/json"};
           const sleep=ms=>new Promise(ok=>setTimeout(ok,ms));
