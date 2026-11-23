@@ -119,7 +119,7 @@ jobs:
           adb shell pidof com.athlys.v10irlqa | grep -Eq '[0-9]+'
           adb push qa/model.gguf /data/local/tmp/athlys-model.gguf >/dev/null
           adb shell chmod 644 /data/local/tmp/athlys-model.gguf
-          adb shell run-as com.athlys.v10irlqa sh -c 'cp /data/local/tmp/athlys-model.gguf files/athlys-qa-model.gguf'
+          adb shell run-as com.athlys.v10irlqa cp /data/local/tmp/athlys-model.gguf files/athlys-qa-model.gguf
           adb shell run-as com.athlys.v10irlqa ls -l files/athlys-qa-model.gguf
           node qa/webview-test.cjs
           adb shell run-as com.athlys.v10irlqa rm -f files/athlys-qa-model.gguf || true
