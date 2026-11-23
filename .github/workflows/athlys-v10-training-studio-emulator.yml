@@ -20,7 +20,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: athlys-v10-qa-android
-          run-id: 45240529452
+          run-id: 45243122013
           github-token: ${{ github.token }}
           path: candidate
 
@@ -36,7 +36,7 @@ jobs:
           unzip -Z1 candidate/Athlys-V10-Test-Android.apk | grep -q 'assets/public/mobile-opening-v10.js'
           unzip -Z1 candidate/Athlys-V10-Test-Android.apk | grep -q 'assets/public/mobile-opening-v10.css'
           mkdir -p qa
-          printf 'source-artifact=45240529452\nsha256=%s\n' "$actual" > qa/manifest.txt
+          printf 'source-artifact=45243122013\nsha256=%s\n' "$actual" > qa/manifest.txt
           echo 'PASS: isolated V10 APK verified before emulator'
 
       - name: Enable KVM for emulator where available
@@ -84,10 +84,31 @@ jobs:
             echo "::error::V10_PROCESS_EXITED"
             exit 1
           fi
+          # Repeat launch without Internet to verify native SDK bootstrap is self-contained.
+          adb shell am force-stop com.athlys.v10studioqa
+          adb shell settings put global airplane_mode_on 1
+          adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true >/dev/null 2>&1 || true
+          adb shell svc wifi disable || true
+          adb shell svc data disable || true
+          echo "airplane_mode=$(adb shell settings get global airplane_mode_on | tr -d '\r')" > qa/offline-state.txt
+          grep -qx 'airplane_mode=1' qa/offline-state.txt
+          adb shell am start -n com.athlys.v10studioqa/.MainActivity >> qa/launch.txt 2>&1
+          sleep 12
+          adb shell screencap -p /sdcard/athlys-v10-offline.png
+          adb pull /sdcard/athlys-v10-offline.png qa/launch-offline.png >/dev/null
+          test -s qa/launch-offline.png
+          adb shell uiautomator dump /sdcard/athlys-window.xml >/dev/null 2>&1 || true
+          adb pull /sdcard/athlys-window.xml qa/accessibility-offline.xml >/dev/null 2>&1 || true
+          if [ -s qa/accessibility-offline.xml ] && grep -E 'Configuration indisponible|Service de connexion indisponible' qa/accessibility-offline.xml; then
+            echo "::error::OFFLINE_AUTH_SDK_NOT_READY"; exit 1
+          fi
+          if ! adb shell pidof com.athlys.v10studioqa | grep -Eq '[0-9]+'; then
+            echo "::error::OFFLINE_APPLICATION_PROCESS_EXITED"; exit 1
+          fi
           if adb logcat -d -s AndroidRuntime:E | grep -E 'FATAL EXCEPTION|Process: com.athlys.v10studioqa' > qa/crash-check.txt; then
             echo "::error::ANDROID_RUNTIME_FATAL_EXCEPTION"; exit 1
           fi
-          echo "PASS: V10 installed, remained active, two screenshots captured and no fatal crash"
+          echo "PASS: V10 installed, remained active, online and offline screenshots captured with local auth SDK and no fatal crash"
           SCRIPT
           chmod +x qa/run-emulator-smoke.sh
 
