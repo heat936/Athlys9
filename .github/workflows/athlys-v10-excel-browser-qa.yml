@@ -58,13 +58,18 @@ jobs:
           const fs=require('node:fs');
           const assert=require('node:assert/strict');
           (async()=>{
+            const guard=setTimeout(()=>{console.error('BROWSER_QA_GLOBAL_TIMEOUT');process.exit(3)},95000);
             const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
             for(const device of [{name:'desktop',width:1360,height:900},{name:'mobile',width:390,height:844}]){
               const page=await browser.newPage({viewport:{width:device.width,height:device.height}});
-              page.on('pageerror',e=>{throw Error('BROWSER_JS_ERROR: '+e.message)});
+              const exceptions=[];
+              page.setDefaultTimeout(9000);
+              page.on('pageerror',e=>exceptions.push(e.message));
               await page.goto('about:blank');
+              console.log('BROWSER_STAGE '+device.name+' opened');
               for(const name of ['athlys-training-intelligence.js','athlys-xlsx-reader.js','athlys-excel-import.js'])
                 await page.addScriptTag({content:fs.readFileSync('web/'+name,'utf8')});
+              await page.addStyleTag({content:fs.readFileSync('web/athlys-excel-import.css','utf8')});
               await page.evaluate(()=>{
                 document.body.innerHTML=window.AthlysTrainingImport.card({
                   owner:'synthetic-user',coach:false,athletes:[],
@@ -85,7 +90,7 @@ jobs:
                 'research consent must not be preselected');
               await page.locator('[data-excel-complete-all]').click();
               assert.equal(await page.locator('[data-excel-done]').first().isChecked(),true);
-              await page.screenshot({path:'qa/'+device.name+'-excel-qa.png',fullPage:true});
+              await page.screenshot({path:'qa/'+device.name+'-excel-qa.png',timeout:9000});
               console.log('PASS_XLSX_CHROMIUM '+device.name+' dates, headers, 2 rows, explicit completion and opt-in unchecked');
               const csv=['Date;Séance;Discipline;Durée min;RPE prévu;RPE ressenti;Réalisé'];
               for(let i=1;i<=65;i++)csv.push('2026-11-23;Sprint '+i+';Sprint;60;6;7;oui');
@@ -102,10 +107,13 @@ jobs:
               await page.locator('[data-excel-page="previous"]').click();
               assert.equal(await page.locator('[data-excel-edit="plannedRpe"]').first().inputValue(),'8');
               console.log('PASS_PAGINATED_CSV '+device.name+' all 65 rows accessible and planned RPE edits persist across pages');
-              await page.screenshot({path:'qa/'+device.name+'-excel-pagination.png',fullPage:true});
+              await page.screenshot({path:'qa/'+device.name+'-excel-pagination.png',timeout:9000});
+              assert.equal(exceptions.length,0,'browser exceptions: '+exceptions.join('; '));
               await page.close();
             }
             await browser.close();
+            clearTimeout(guard);
+            console.log('PASS_BROWSER_QA_COMPLETED');
           })().catch(e=>{console.error('EXCEL_BROWSER_QA_FAILED '+e.stack);process.exitCode=1});
           NODE
       - name: Upload synthetic visual evidence with no users or private data
