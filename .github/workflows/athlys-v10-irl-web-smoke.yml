@@ -1,0 +1,50 @@
+name: Athlys V10 IRL staging — remote Web HTTP smoke
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/athlys-v10-irl-web-smoke.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate HTTPS pages, local auth bundle, staging-only project identity
+        shell: bash
+        env:
+          BASE: https://athlys-v10-irl-staging.vercel.app
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const assert=require('node:assert/strict');
+          const base=process.env.BASE;
+          const routes=['/app.html','/mobile.html','/app-config.js','/app.js',
+            '/supabase-client.bundle.js','/mobile-opening-v10.js','/mobile-opening-v10.css'];
+          const timeout=AbortSignal.timeout(15000);
+          (async()=>{
+            const texts={};
+            for(const route of routes){
+              const response=await fetch(base+route,{redirect:'follow',signal:timeout});
+              assert.equal(response.status,200,route+' HTTP '+response.status);
+              const content=await response.text();
+              assert(content.length>90,route+' empty or incomplete');
+              texts[route]=content;
+              console.log('PASS_HTTP '+route+' bytes='+content.length);
+            }
+            assert(texts['/app-config.js'].includes('avonfqgechvrnqxmbufn.supabase.co'),
+              'Pilot points at wrong Supabase project');
+            assert(!texts['/app-config.js'].includes('ixccwxonchzzjdjeajzw'),
+              'Production Supabase endpoint leaked into pilot configuration');
+            assert(texts['/supabase-client.bundle.js'].includes('createClient'),
+              'Local auth client bundle missing');
+            assert(texts['/mobile.html'].includes('athlys-opening-v10'),
+              'Trajectoire opening not wired');
+            console.log('PASS: Staging Web pages and local authentication assets published.');
+          })().catch(e=>{console.error('IRL_WEB_NO_GO: '+e.message);process.exitCode=1;});
+          NODE
