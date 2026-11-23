@@ -1,0 +1,63 @@
+name: Athlys IRL staging — live Auth API and anonymous RLS gate
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/athlys-v10-irl-auth-http-gate.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  auth-http:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: e12daba003207f92603cb64ce225ab003dfd15de
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify official staging Auth endpoint and prevent unauthenticated data access
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs=require('node:fs'),assert=require('node:assert/strict');
+          const source=fs.readFileSync('web/app-config.js','utf8');
+          const url=source.match(/url:\s*["']([^"']+)["']/)?.[1];
+          const key=source.match(/anonKey:\s*["']([^"']+)["']/)?.[1];
+          assert.equal(url,'https://avonfqgechvrnqxmbufn.supabase.co');
+          assert(/^sb_publishable_/.test(key||''));
+          const timeout=()=>AbortSignal.timeout(12000);
+          (async()=>{
+            const h=await fetch(url+'/auth/v1/health',{headers:{apikey:key},signal:timeout()});
+            assert(h.ok,'GoTrue health HTTP '+h.status);
+            console.log('PASS GoTrue staging health HTTP '+h.status);
+            const invalid=await fetch(url+'/auth/v1/token?grant_type=password',{
+              method:'POST',headers:{apikey:key,'content-type':'application/json'},signal:timeout(),
+              body:JSON.stringify({email:'athlys-unregistered-probe@athlys.test',password:'InvalidTestPassword!12345'})
+            });
+            assert(invalid.status===400||invalid.status===401,'unknown credentials should not authenticate HTTP '+invalid.status);
+            const payload=await invalid.json();
+            assert(!payload.access_token,'invalid login produced session');
+            console.log('PASS GoTrue invalid credentials denied HTTP '+invalid.status);
+            for(const table of ['profiles','coach_athletes','athlys_dual_perception']){
+              const res=await fetch(url+'/rest/v1/'+table+'?select=*&limit=1',{
+                headers:{apikey:key,'Accept':'application/json'},signal:timeout()
+              });
+              if(res.ok){
+                const data=await res.json();
+                assert(Array.isArray(data),'unexpected response shape');
+                assert.equal(data.length,0,'anonymous user can see '+table);
+              }else{
+                assert([401,403].includes(res.status),'unexpected REST status for '+table+': '+res.status);
+              }
+              console.log('PASS anonymous no access to '+table+' HTTP '+res.status);
+            }
+            console.log('PASS live staging Auth/REST negative gates only (NO JWT for coach/athlete)');
+          })().catch(e=>{console.error('NO_GO staging Auth HTTP check: '+e.message);process.exitCode=1});
+          NODE
