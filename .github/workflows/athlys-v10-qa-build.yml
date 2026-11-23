@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: 37f05b29cb215785b90d03de19dd7a2e948ebf5d
+          ref: 07bea079def2293ee9926ada72f5c5f9d9529424
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -34,7 +34,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "37f05b29cb215785b90d03de19dd7a2e948ebf5d"
+          test "$(git rev-parse HEAD)" = "07bea079def2293ee9926ada72f5c5f9d9529424"
           node --check web/app.js
           node --check web/mobile-opening-v10.js
           node --check web/mobile.js
@@ -62,6 +62,18 @@ jobs:
             echo "::error::V10_WEB_BUILD_FAILED"; exit 1
           fi
           echo "PASS: core unit tests and Web build"
+
+      - name: Fetch the exact official original opening video
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 2 --max-time 45 --silent --show-error \
+            'https://github.com/heat936/Athlys9/releases/download/athlys-v10-opening/athlys-opening-v10.mp4' \
+            -o web/assets/athlys-opening-v10.mp4
+          test "$(stat -c %s web/assets/athlys-opening-v10.mp4)" -eq 140824
+          test "$(sha256sum web/assets/athlys-opening-v10.mp4 | cut -d' ' -f1)" = \
+            '8833b04706df146f23866d266e60ba5368097c40bc2842ea1525d1eb6ee9fe37'
+          echo 'PASS: exact brand video 1080x1920, 3 seconds, voice Athlys, bundled offline'
 
       - name: Configure side-by-side V10 Android candidate
         shell: bash
@@ -106,6 +118,23 @@ jobs:
           v.write_text(t)
           strings=Path('android/app/src/main/res/values/strings.xml')
           strings.write_text(strings.read_text().replace('>Athlys<','>Athlys V10 Test<'))
+          # Permit the official spoken brand introduction on Android's WebView.
+          # Ordinary browsers still require a user gesture for unmuting.
+          files=list(Path('android/app/src/main/java').rglob('MainActivity.java'))
+          if len(files)==1:
+              activity=files[0]
+              original=activity.read_text()
+              replacement="""public class MainActivity extends BridgeActivity {
+                @Override public void onCreate(android.os.Bundle state) {
+                  super.onCreate(state);
+                  getBridge().getWebView().getSettings().setMediaPlaybackRequiresUserGesture(false);
+                }
+              }"""
+              amended,n=re.subn(r'public class MainActivity extends BridgeActivity\s*\{\s*\}',replacement,original,count=1)
+              if n==1:
+                  activity.write_text(amended)
+              else:
+                  print('Android main activity already customised; no automatic overwrite')
           PY
           echo "PASS: isolated Android package com.athlys.v10preview version 10.0.0-rc1"
 
@@ -135,6 +164,7 @@ jobs:
           unzip -t release/Athlys-V10-Test-Android.apk >"$RUNNER_TEMP/v10-zip.log"
           unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/mobile-opening-v10.js'
           unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/mobile-opening-v10.css'
+          unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/assets/athlys-opening-v10.mp4'
           unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/app.js'
           BUILD_TOOLS="$(ls -d "${ANDROID_HOME}/build-tools/"* | sort -V | tail -1)"
           "$BUILD_TOOLS/apksigner" verify --verbose release/Athlys-V10-Test-Android.apk > "$RUNNER_TEMP/v10-signature.log"
