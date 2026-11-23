@@ -42,3 +42,10 @@ Pour chaque parcours : appareil et version Android/OS, date, fonctionnalité, at
 Le site de staging utilise `robots.txt` Disallow et `X-Robots-Tag: noindex` ; cela empêche l'indexation normale mais **ne restreint pas l'accès par URL**.
 
 **La recette avec données personnelles sensibles ou un déploiement grand public ne sont pas autorisés à ce stade.**
+
+## Test d'authentification réelle : prérequis administrateur
+Le pipeline [GoTrue JWT + RLS du pilote](https://github.com/heat936/Athlys9/actions/workflows/athlys-v10-irl-real-jwt-qa.yml) est prêt et a passé syntaxe/tests unitaires sur la source épinglée, mais son [premier run](https://github.com/heat936/Athlys9/actions/runs/45261031897) s'arrête sur **un secret de staging manquant**.
+
+Pour activer ce test automatisé, le responsable technique doit configurer dans les **GitHub Actions Secrets** de ce dépôt `ATHLYS_QA_SERVICE_ROLE_KEY`, en utilisant exclusivement la clé du projet Supabase **Athlys2 staging**. La clé n'est jamais destinée au navigateur, au dépôt ou à cette conversation. Le domaine d'adresses synthétiques `athlys.test` est déjà intégré : aucun autre secret n'est demandé pour ce workflow.
+
+**Le GO Auth/RLS réel n'est pas obtenu tant que ce workflow n'a pas terminé avec succès.** Le PASS d'ouverture de session d'un navigateur ne remplace pas un JWT de test ni un contrôle de synchronisation sur deux appareils.
