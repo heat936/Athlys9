@@ -1,4 +1,4 @@
-name: Athlys V10 Excel — APK overlay without Gradle Maven dependencies
+name: Athlys V10 Excel — paired RPE final Android QA without Gradle
 on:
   push:
     branches: [main]
@@ -13,14 +13,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      SOURCE_SHA: 43f384a9c5d501b638b046fefe6550a8580de389
+      SOURCE_SHA: e710c7ee15c4927949dd4070461f54a9ce21c13b
       BASE_RELEASE: athlys-v10-irl-staging-qa-20261123
     steps:
       - name: Checkout exact Athlys V10 Excel branch source
         uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: 43f384a9c5d501b638b046fefe6550a8580de389
+          ref: e710c7ee15c4927949dd4070461f54a9ce21c13b
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           path: candidate
           persist-credentials: false
@@ -34,6 +34,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git -C candidate rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(gh run view 45272335052 --repo heat936/Athlys9 --json conclusion --jq '.conclusion')" = 'success'
           test -f candidate/web/athlys-excel-import.js
           mkdir -p base output
           gh release download "$BASE_RELEASE" --repo heat936/Athlys9 --pattern 'Athlys-V10-IRL-Staging.apk' --dir base
@@ -86,6 +87,9 @@ jobs:
               assert b"athlys-excel-import.js" in check.read("assets/public/mobile.html")
               assert b"athlys-excel-import.js" in check.read("assets/public/app.html")
               assert b"completed:done===null?false:done" in check.read("assets/public/athlys-training-intelligence.js")
+              assert b"metrics.planned_rpe=r.plannedRpe" in check.read("assets/public/athlys-training-intelligence.js")
+              assert b'data-excel-page="next"' in check.read("assets/public/athlys-excel-import.js")
+              assert b"pairedRpe:paired" in check.read("assets/public/athlys-training-intelligence.js")
           print("PASS overlay 9 audited Web assets, preserving existing native binaries, trajectory intro and staging settings")
           PY
       - name: Zipalign and independently debug-sign QA APK
@@ -125,14 +129,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG=athlys-v10-excel-overlay-qa-20261123
+          TAG=athlys-v10-excel-paired-rpe-qa-20261123
           if gh release view "$TAG" --repo heat936/Athlys9 >/dev/null 2>&1; then
             echo 'Existing immutable QA release preserved'
           else
             gh release create "$TAG" --repo heat936/Athlys9 \
               output/Athlys-V10-Excel-IRL.apk output/SHA256SUMS.txt \
-              --title 'Athlys V10 Excel — APK de recette sans Gradle' \
-              --notes 'APK de test V10 Expo Excel construit à partir de l’APK V10 existant, avec neuf fichiers Web vérifiés remplacés. Signature de QA différente du précédent APK : désinstaller uniquement com.athlys.v10irlqa avant installation, sans toucher Athlys V9 ou à la production. Backend Supabase2 staging, données fictives seulement. Aucun GO JWT coach/athlète/tiers ni synchronisation physique prouvé. Le classeur Excel est lu localement ; consentement pour candidat ML uniquement par l’athlète, pas de formation automatique de modèle.' \
+              --title 'Athlys V10 Excel — import et RPE apparié (Android QA)' \
+              --notes 'APK de recette Athlys V10 Excel issu du V10 natif vérifié avec neuf fichiers Web mis à jour : 200 séances vérifiables par pages, RPE prévu et RPE ressenti appariés, adaptation locale exploratoire à partir de l’historique. Les candidats ML de recherche restent privés et soumis au consentement de l’athlète. Signature de QA différente du précédent APK : désinstaller uniquement com.athlys.v10irlqa avant installation, sans toucher Athlys V9 ou à la production. Backend Supabase2 staging, données fictives seulement. Aucun GO JWT coach/athlète/tiers ni synchronisation physique prouvé. Le classeur Excel est lu localement ; consentement pour candidat ML uniquement par l’athlète, pas de formation automatique de modèle.' \
               --prerelease
           fi
           gh release view "$TAG" --repo heat936/Athlys9 --json assets --jq '.assets[].name' | grep -qx 'Athlys-V10-Excel-IRL.apk'
