@@ -58,7 +58,7 @@ jobs:
           emulator-boot-timeout: 480
           disable-animations: false
           script: |
-            set -euo pipefail
+            set -eu
             adb install -r candidate/Athlys-V10-Test-Android.apk > qa/install.txt 2>&1
             adb shell am start -n com.athlys.v10preview/.MainActivity > qa/launch.txt 2>&1
             adb shell pidof com.athlys.v10preview | grep -Eq '[0-9]+'
