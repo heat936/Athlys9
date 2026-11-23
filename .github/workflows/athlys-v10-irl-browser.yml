@@ -63,3 +63,5 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
           path: qa/
+
+# Revalidate after X-Robots-Tag privacy deployment dpl_8zdMGASaJ8mxsjAoitPoRSEEARNd.
