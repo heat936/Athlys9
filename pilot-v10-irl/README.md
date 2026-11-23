@@ -4,7 +4,7 @@
 ## Accès
 - **Web ordinateur** : https://athlys-v10-irl-staging.vercel.app/app.html
 - **Web mobile** : https://athlys-v10-irl-staging.vercel.app/mobile.html
-- **Android** : préversion `athlys-v10-irl-staging-qa-20261123`, package isolé `com.athlys.v10irlqa` (APK debug signé pour recette, installé à côté de V9/V10 Studio). Télécharger uniquement l'asset identifié dans la release et contrôler sa somme SHA-256.
+- **Android** : [Télécharger l’APK de recette](https://github.com/heat936/Athlys9/releases/download/athlys-v10-irl-staging-qa-20261123/Athlys-V10-IRL-Staging.apk) et [sa somme SHA-256](https://github.com/heat936/Athlys9/releases/download/athlys-v10-irl-staging-qa-20261123/SHA256SUMS.txt), préversion `athlys-v10-irl-staging-qa-20261123`, package isolé `com.athlys.v10irlqa` (APK debug signé pour recette, installé à côté de V9/V10 Studio). Télécharger uniquement l'asset identifié dans la release et contrôler sa somme SHA-256.
 - **Services backend** : Supabase *Athlys2 staging*. Aucun basculement du projet principal Athlys n'a été effectué.
 
 ## Public et limites
@@ -26,6 +26,9 @@ Ne jamais poster dans une issue GitHub d'email réel, mot de passe, jeton/JWT, c
 ## STOP immédiat
 Arrêter l'essai et signaler par canal privé si un compte peut consulter un autre groupe, si une donnée de santé apparaît sans consentement, si une erreur de synchronisation efface des données, ou si l'application boucle sur l'authentification. Pas de déploiement général avant tests **JWT réels** (coach, athlète, tiers) et RLS négatifs.
 
+## Signaler une anomalie
+Utiliser le [modèle de ticket Athlys V10 IRL](https://github.com/heat936/Athlys9/issues/new?template=athlys-v10-irl-bug.md) uniquement pour des problèmes non sensibles. Tout incident de confidentialité doit être remonté par un canal privé.
+
 ## Compte-rendu minimal
 Pour chaque parcours : appareil et version Android/OS, date, fonctionnalité, attendu/observé, résultat PASS/FAIL, étapes reproduisant l'erreur, **sans information personnelle**.
 
@@ -35,5 +38,7 @@ Pour chaque parcours : appareil et version Android/OS, date, fonctionnalité, at
 - Tests HTTPS Web staging : https://github.com/heat936/Athlys9/actions/runs/45258271257
 - Tests navigateur : https://github.com/heat936/Athlys9/actions/runs/45258466209
 - Vérification prérequis JWT : https://github.com/heat936/Athlys9/actions/runs/45256766546 — **bloqué** par deux secrets de staging absents ; ne pas confondre avec un test JWT réussi.
+
+Le site de staging utilise `robots.txt` Disallow et `X-Robots-Tag: noindex` ; cela empêche l'indexation normale mais **ne restreint pas l'accès par URL**.
 
 **La recette avec données personnelles sensibles ou un déploiement grand public ne sont pas autorisés à ce stade.**
