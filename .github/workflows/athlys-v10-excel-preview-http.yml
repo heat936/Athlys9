@@ -38,6 +38,10 @@ jobs:
             assert(contents['/mobile.html'].includes('athlys-excel-import.js'),'mobile module not in HTML');
             assert(contents['/athlys-excel-import.js'].includes('data-excel-done'),'no completed/plan distinction');
             assert(contents['/athlys-training-intelligence.js'].includes('completed:done===null?false:done'),'planned RPE must not imply completed');
+            assert(contents['/athlys-training-intelligence.js'].includes('metrics.planned_rpe=r.plannedRpe'),'paired RPE missing from parser');
+            assert(contents['/athlys-training-intelligence.js'].includes('pairedRpe:paired'),'paired RPE cohort summary missing');
+            assert(contents['/athlys-excel-import.js'].includes('data-excel-page="next"'),'import preview pagination missing');
+            assert(contents['/athlys-excel-import.js'].includes('pseudonymisées'),'privacy notice missing');
             assert(contents['/app-config.js'].includes('avonfqgechvrnqxmbufn.supabase.co'),'wrong staging backend');
             assert(!contents['/app-config.js'].includes('ixccwxonchzzjdjeajzw'),'production backend leaked');
             assert(contents['/robots.txt'].includes('Disallow: /'),'staging crawler rule missing');
