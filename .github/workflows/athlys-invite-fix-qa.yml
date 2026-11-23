@@ -1,0 +1,77 @@
+name: Athlys invitation fix - isolated private source validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/athlys-invite-fix-qa.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Require read-only source credential
+        shell: bash
+        env:
+          SOURCE_TOKEN: ${{ secrets.ATHLYS_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$SOURCE_TOKEN" || { echo "::error::Private-source read credential unavailable"; exit 1; }
+          echo "Private source credential present; value not logged."
+
+      - name: Checkout private Athlys candidate (no credential persistence)
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: fix/coach-invitation-stability-20261123
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+          path: source
+
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Isolated code and migration acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check source/web/app.js
+          node <<'NODE'
+          const fs = require('node:fs');
+          const assert = require('node:assert/strict');
+          const app = fs.readFileSync('source/web/app.js','utf8');
+          const sql = fs.readFileSync('source/supabase/migrations/20261123165000_athlys_coach_invitation_signup_stability.sql','utf8');
+          assert(app.includes('D.coachCode?"Voir mon code":"Créer un code"'));
+          assert(app.includes('db.rpc("regenerate_my_coach_code")'));
+          assert(app.includes('else if(a==="copy-code")'));
+          assert(app.includes('if(!signupFirstName||!signupLastName)'));
+          assert(app.includes('autocomplete="given-name" required maxlength="80"'));
+          assert(sql.includes('CREATE OR REPLACE FUNCTION public.create_coach_code()'));
+          assert(sql.includes('CREATE OR REPLACE FUNCTION public.regenerate_my_coach_code()'));
+          assert(sql.includes('CREATE OR REPLACE FUNCTION public.athlys_new_profile()'));
+          assert(sql.includes('REVOKE ALL ON FUNCTION public.regenerate_my_coach_code() FROM PUBLIC, anon;'));
+          console.log('PASS: code and migration contract checks (no source printed)');
+          NODE
+
+      - name: Install and execute isolated Athlys tests
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          npm install --prefer-online --no-audit --no-fund >"$RUNNER_TEMP/athlys-install.log" 2>&1 || { echo "::error::DEPENDENCY_INSTALL_FAILED"; exit 1; }
+          npm test >"$RUNNER_TEMP/athlys-test.log" 2>&1 || { echo "::error::UNIT_TEST_FAILED"; exit 1; }
+          npm run build:web >"$RUNNER_TEMP/athlys-build.log" 2>&1 || { echo "::error::WEB_BUILD_FAILED"; exit 1; }
+          node --check web/app.js
+          echo "PASS: npm test and npm run build:web, Node.js syntax"
+
+      - name: Report status only
+        if: always()
+        shell: bash
+        run: echo "Athlys private source was not uploaded as a public artifact."
