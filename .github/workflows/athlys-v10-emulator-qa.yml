@@ -20,7 +20,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: athlys-v10-qa-android
-          run-id: 45218205409
+          run-id: 45222594874
           github-token: ${{ github.token }}
           path: candidate
 
@@ -36,7 +36,7 @@ jobs:
           unzip -Z1 candidate/Athlys-V10-Test-Android.apk | grep -q 'assets/public/mobile-opening-v10.js'
           unzip -Z1 candidate/Athlys-V10-Test-Android.apk | grep -q 'assets/public/mobile-opening-v10.css'
           mkdir -p qa
-          printf 'source-artifact=45218205409\nsha256=%s\n' "$actual" > qa/manifest.txt
+          printf 'source-artifact=45222594874\nsha256=%s\n' "$actual" > qa/manifest.txt
           echo 'PASS: isolated V10 APK verified before emulator'
 
       - name: Enable KVM for emulator where available
@@ -61,7 +61,19 @@ jobs:
             set -eu
             adb install -r candidate/Athlys-V10-Test-Android.apk > qa/install.txt 2>&1
             adb shell am start -n com.athlys.v10preview/.MainActivity > qa/launch.txt 2>&1
-            adb shell pidof com.athlys.v10preview | grep -Eq '[0-9]+'
+            grep -q 'cmp=com.athlys.v10preview' qa/launch.txt
+            # Android process creation is asynchronous; do not check pidof immediately.
+            active=0
+            for i in $(seq 1 30); do
+              if adb shell pidof com.athlys.v10preview | grep -Eq '[0-9]+'; then active=1; break; fi
+              sleep 1
+            done
+            if [ "$active" != 1 ]; then
+              adb shell dumpsys activity activities > qa/activity-failure.txt
+              adb logcat -d -s AndroidRuntime:E > qa/runtime-failure.txt
+              echo '::error::V10_PROCESS_NOT_STARTED'
+              exit 1
+            fi
             sleep 2
             adb shell screencap -p /sdcard/athlys-v10-opening.png
             adb pull /sdcard/athlys-v10-opening.png qa/launch-opening.png >/dev/null
