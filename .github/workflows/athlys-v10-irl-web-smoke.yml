@@ -45,6 +45,12 @@ jobs:
               'Local auth client bundle missing');
             assert(texts['/mobile.html'].includes('athlys-opening-v10'),
               'Trajectoire opening not wired');
+            const robots=await fetch(base+'/robots.txt',{signal:AbortSignal.timeout(15000)});
+            assert.equal(robots.status,200,'robots.txt HTTP');
+            assert((await robots.text()).includes('Disallow: /'),'staging must not be indexed');
+            const robotsHeader=await fetch(base+'/app.html',{method:'HEAD',signal:AbortSignal.timeout(15000)});
+            assert((robotsHeader.headers.get('x-robots-tag')||'').includes('noindex'),'missing staging noindex header');
+            console.log('PASS: staging robots and noindex headers verified.');
             console.log('PASS: Staging Web pages and local authentication assets published.');
           })().catch(e=>{console.error('IRL_WEB_NO_GO: '+e.message);process.exitCode=1;});
           NODE
