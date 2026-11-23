@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: d733df625aa9cac515878244c01613bc01cb18ef
+          ref: 78a576cc1e1b4633dc2500342d4291f8a3625df9
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -34,7 +34,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "d733df625aa9cac515878244c01613bc01cb18ef"
+          test "$(git rev-parse HEAD)" = "78a576cc1e1b4633dc2500342d4291f8a3625df9"
           node --check web/app.js
           node --check web/mobile-opening-v10.js
           node --check web/mobile.js
@@ -90,8 +90,8 @@ jobs:
           const fs=require('node:fs');
           const p='capacitor.config.json';
           const c=JSON.parse(fs.readFileSync(p,'utf8'));
-          c.appId='com.athlys.v10preview';
-          c.appName='Athlys V10 Test';
+          c.appId='com.athlys.v10studioqa';
+          c.appName='Athlys V10 Studio Test';
           fs.writeFileSync(p,JSON.stringify(c,null,2)+'\n');
           NODE
           cp web/mobile.html web/index.html
@@ -115,9 +115,9 @@ jobs:
           p=Path('android/app/build.gradle')
           s=p.read_text()
           # V10 is a separate QA package until the v9 signing key is available.
-          s,n=re.subn(r'versionCode\s+\d+', 'versionCode 100',s,count=1)
+          s,n=re.subn(r'versionCode\s+\d+', 'versionCode 101',s,count=1)
           if n!=1: raise SystemExit('versionCode replacement failed')
-          s,n=re.subn(r'versionName\s+"[^"]+"', 'versionName "10.0.0-rc1"',s,count=1)
+          s,n=re.subn(r'versionName\s+"[^"]+"', 'versionName "10.1.0-rc1"',s,count=1)
           if n!=1: raise SystemExit('versionName replacement failed')
           if 'coreLibraryDesugaringEnabled' not in s:
               if 'compileOptions {' not in s:
@@ -131,7 +131,7 @@ jobs:
           if n!=1: raise SystemExit('minSdkVersion variable missing')
           v.write_text(t)
           strings=Path('android/app/src/main/res/values/strings.xml')
-          strings.write_text(strings.read_text().replace('>Athlys<','>Athlys V10 Test<'))
+          strings.write_text(strings.read_text().replace('>Athlys<','>Athlys V10 Studio Test<'))
           # Permit the official spoken brand introduction on Android's WebView.
           # Ordinary browsers still require a user gesture for unmuting.
           files=list(Path('android/app/src/main/java').rglob('MainActivity.java'))
@@ -151,7 +151,7 @@ jobs:
               else:
                   print('Android main activity already customised; no automatic overwrite')
           PY
-          echo "PASS: isolated Android package com.athlys.v10preview version 10.0.0-rc1"
+          echo "PASS: isolated Android package com.athlys.v10studioqa version 10.0.0-rc1"
 
       - name: Apply official Athlys visual identity to the Android native splash
         shell: bash
@@ -231,11 +231,15 @@ jobs:
           unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/mobile-opening-v10.js'
           unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/mobile-opening-v10.css'
           unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/assets/athlys-v10-trajectoire.mp4'
+          unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/studio.html'
+          unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/studio-core.js'
+          unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/studio.js'
+          unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/studio.css'
           unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/app.js'
           BUILD_TOOLS="$(ls -d "${ANDROID_HOME}/build-tools/"* | sort -V | tail -1)"
           "$BUILD_TOOLS/apksigner" verify --verbose release/Athlys-V10-Test-Android.apk > "$RUNNER_TEMP/v10-signature.log"
           sha256sum release/Athlys-V10-Test-Android.apk > release/SHA256SUMS.txt
-          printf 'Athlys V10 QA - Trajectoire intro and bounded auth - package com.athlys.v10preview - debug signing only - does NOT update v9\n' > release/README.txt
+          printf 'Athlys V10 QA - Trajectoire intro and bounded auth - package com.athlys.v10studioqa - debug signing only - does NOT update v9\n' > release/README.txt
           echo "PASS: V10 QA APK built, ZIP verified, app assets present and debug signature verified"
 
       - name: Upload distributable QA files
