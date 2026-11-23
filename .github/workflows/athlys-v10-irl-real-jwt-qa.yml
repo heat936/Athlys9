@@ -1,0 +1,54 @@
+name: Athlys IRL — real GoTrue JWT and RLS with synthetic staging users
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-v10-irl-real-jwt-qa.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  jwt-rls:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      EXPECTED_SHA: e12daba003207f92603cb64ce225ab003dfd15de
+      ATHLYS_QA_SERVICE_ROLE_KEY: ${{ secrets.ATHLYS_QA_SERVICE_ROLE_KEY }}
+      ATHLYS_QA_EMAIL_DOMAIN: athlys.test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: e12daba003207f92603cb64ce225ab003dfd15de
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify immutable staging source and synthetic QA-script syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          grep -q 'avonfqgechvrnqxmbufn.supabase.co' web/app-config.js
+          ! grep -q 'ixccwxonchzzjdjeajzw' web/app-config.js
+          node --check tests/athlys-real-auth-provision-run-cleanup.cjs
+          node --check tests/athlys-real-supabase-auth-qa.cjs
+          npm install --ignore-scripts --no-audit --no-fund > /tmp/npm-irl-jwt.log 2>&1
+          npm test > /tmp/irl-unit-tests.log 2>&1 || { echo "::error::UNIT_TESTS_FAILED"; exit 1; }
+          echo "PASS: pinned V10 source and QA scripts compiled and unit-tested"
+      - name: Create temporary Auth users via official Admin API, validate JWT/RLS, always delete
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$ATHLYS_QA_SERVICE_ROLE_KEY" || {
+            echo "::error::BLOCKED: set ATHLYS_QA_SERVICE_ROLE_KEY from Supabase Athlys2 staging only"
+            exit 2
+          }
+          node tests/athlys-real-auth-provision-run-cleanup.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: athlys-v10-irl-real-jwt-evidence
+          retention-days: 7
+          if-no-files-found: ignore
+          path: qa-evidence/real-auth-results.json
