@@ -1,0 +1,48 @@
+name: Athlys V10 Excel — published preview HTTP integrity
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-v10-excel-preview-http.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  published:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify real remote preview assets and privacy boundaries
+        env:
+          BASE: https://athlys-v10-irl-staging-ng64bljgq-adiceamlilian-6530.vercel.app
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const assert=require('node:assert/strict');
+          (async()=>{
+            const p=process.env.BASE,files=['/app.html','/mobile.html','/index.html','/app.js',
+              '/athlys-training-intelligence.js','/athlys-xlsx-reader.js','/athlys-excel-import.js',
+              '/athlys-excel-import.css','/app-config.js','/robots.txt','/supabase-client.bundle.js'];
+            const contents={};
+            for(const path of files){
+              const res=await fetch(p+path,{signal:AbortSignal.timeout(15000)});
+              assert.equal(res.status,200,path+' HTTP '+res.status);
+              const body=await res.text();assert(body.length>10,path+' empty');
+              contents[path]=body;
+              console.log('PASS_REMOTE_FILE '+path+' bytes='+body.length);
+            }
+            assert(contents['/app.js'].includes('AthlysTrainingImport.card'),'not wired into training app');
+            assert(contents['/app.html'].includes('athlys-excel-import.js'),'desktop module not in HTML');
+            assert(contents['/mobile.html'].includes('athlys-excel-import.js'),'mobile module not in HTML');
+            assert(contents['/athlys-excel-import.js'].includes('data-excel-done'),'no completed/plan distinction');
+            assert(contents['/athlys-training-intelligence.js'].includes('completed:done===null?false:done'),'planned RPE must not imply completed');
+            assert(contents['/app-config.js'].includes('avonfqgechvrnqxmbufn.supabase.co'),'wrong staging backend');
+            assert(!contents['/app-config.js'].includes('ixccwxonchzzjdjeajzw'),'production backend leaked');
+            assert(contents['/robots.txt'].includes('Disallow: /'),'staging crawler rule missing');
+            const head=await fetch(p+'/app.html',{method:'HEAD',signal:AbortSignal.timeout(15000)});
+            assert((head.headers.get('x-robots-tag')||'').includes('noindex'),'staging search index protection missing');
+            console.log('PASS_PUBLIC_PREVIEW: Excel import assets, roles, planned-session rule, Supabase2 staging and noindex');
+          })().catch(e=>{console.error('PREVIEW_NO_GO '+e.message);process.exitCode=1});
+          NODE
