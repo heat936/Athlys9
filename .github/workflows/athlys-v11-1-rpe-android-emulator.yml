@@ -1,0 +1,157 @@
+name: Athlys V11.1 RPE Semantic ML — Android 14 staging and offline smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/athlys-v11-1-rpe-android-emulator.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  emulator:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Download verified published Excel V10 staging APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p candidate
+          gh release download athlys-v11-1-rpe-semantic-qa-20261123 --repo heat936/Athlys9 --pattern Athlys-V11.1-RPE-Language-QA.apk --dir candidate
+          gh release download athlys-v11-1-rpe-semantic-qa-20261123 --repo heat936/Athlys9 --pattern SHA256SUMS.txt --dir candidate
+
+      - name: Check APK integrity, package and opening files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s candidate/Athlys-V11.1-RPE-Language-QA.apk
+          expected="$(awk '{print $1}' candidate/SHA256SUMS.txt)"
+          actual="$(sha256sum candidate/Athlys-V11.1-RPE-Language-QA.apk | cut -d' ' -f1)"
+          test "$actual" = "$expected"
+          unzip -t candidate/Athlys-V11.1-RPE-Language-QA.apk > /tmp/v10-zip.log
+          unzip -p candidate/Athlys-V11.1-RPE-Language-QA.apk assets/public/app-config.js | grep -q 'avonfqgechvrnqxmbufn.supabase.co'
+          ! unzip -p candidate/Athlys-V11.1-RPE-Language-QA.apk assets/public/app-config.js | grep -q 'ixccwxonchzzjdjeajzw'
+          unzip -Z1 candidate/Athlys-V11.1-RPE-Language-QA.apk | grep -q 'assets/public/mobile-opening-v10.js'
+          unzip -Z1 candidate/Athlys-V11.1-RPE-Language-QA.apk | grep -q 'assets/public/mobile-opening-v10.css'
+          for f in athlys-training-intelligence.js athlys-xlsx-reader.js athlys-excel-import.js athlys-excel-import.css; do
+            unzip -Z1 candidate/Athlys-V11.1-RPE-Language-QA.apk | grep -qx "assets/public/$f"
+          done
+          unzip -p candidate/Athlys-V11.1-RPE-Language-QA.apk assets/public/athlys-training-intelligence.js | grep -q 'metrics.planned_rpe=r.plannedRpe'
+          unzip -p candidate/Athlys-V11.1-RPE-Language-QA.apk assets/public/athlys-excel-import.js | grep -q 'data-excel-page="next"'
+          unzip -Z1 candidate/Athlys-V11.1-RPE-Language-QA.apk | grep -qx 'assets/public/athlys-light-lm-runtime/assistant.js'
+          unzip -Z1 candidate/Athlys-V11.1-RPE-Language-QA.apk | grep -qx 'assets/public/athlys-light-lm-runtime/wllama.wasm'
+          unzip -Z1 candidate/Athlys-V11.1-RPE-Language-QA.apk | grep -qx 'assets/public/athlys-light-lm-runtime/model.json'
+          unzip -Z1 candidate/Athlys-V11.1-RPE-Language-QA.apk | grep -qx 'assets/public/athlys-light-lm-runtime/wllama-LICENSE'
+          unzip -Z1 candidate/Athlys-V11.1-RPE-Language-QA.apk | grep -qx 'assets/public/athlys-rpe-semantic-ml.js'
+          unzip -p candidate/Athlys-V11.1-RPE-Language-QA.apk assets/public/athlys-rpe-semantic-ml.js | grep -q 'walk_forward_no_gain'
+          unzip -p candidate/Athlys-V11.1-RPE-Language-QA.apk assets/public/mobile.html | grep -q '/athlys-rpe-semantic-ml.js'
+          unzip -p candidate/Athlys-V11.1-RPE-Language-QA.apk assets/public/app.html | grep -q '/athlys-rpe-semantic-ml.js'
+          unzip -p candidate/Athlys-V11.1-RPE-Language-QA.apk assets/public/athlys-local-intelligence.js | grep -q 'avoid same-day/forward labels'
+                    if unzip -Z1 candidate/Athlys-V11.1-RPE-Language-QA.apk | grep -iq gguf; then
+            echo "::error::MODEL_WEIGHTS_EMBEDDED"; exit 1
+          fi
+          mkdir -p qa
+          printf 'source-artifact=45287019217\nsha256=%s\n' "$actual" > qa/manifest.txt
+          echo 'PASS: isolated V11.1 APK verified before emulator'
+
+      - name: Enable KVM for emulator where available
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules > /dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -w /dev/kvm || echo "::warning::KVM not available; emulator may fail to boot"
+
+      - name: Prepare a single-shell Android emulator smoke script
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > qa/run-emulator-smoke.sh <<'SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          adb install -r candidate/Athlys-V11.1-RPE-Language-QA.apk > qa/install.txt 2>&1
+          adb shell am start -n com.athlys.v10irlqa/.MainActivity > qa/launch.txt 2>&1
+          active=0
+          for i in $(seq 1 45); do
+            if adb shell pidof com.athlys.v10irlqa | grep -Eq '[0-9]+'; then active=1; break; fi
+            sleep 1
+          done
+          if [ "$active" -ne 1 ]; then
+            adb shell dumpsys activity activities > qa/activity-failure.txt || true
+            adb logcat -d -s AndroidRuntime:E > qa/runtime-failure.txt || true
+            echo "::error::V11_PROCESS_NOT_STARTED"
+            exit 1
+          fi
+          sleep 2
+          adb shell screencap -p /sdcard/athlys-v10-opening.png
+          adb pull /sdcard/athlys-v10-opening.png qa/launch-opening.png >/dev/null
+          sleep 2
+          adb shell screencap -p /sdcard/athlys-v10-transition.png
+          adb pull /sdcard/athlys-v10-transition.png qa/launch-transition.png >/dev/null
+          sleep 7
+          adb shell screencap -p /sdcard/athlys-v10-postloading.png
+          adb pull /sdcard/athlys-v10-postloading.png qa/launch-postloading.png >/dev/null
+          adb shell dumpsys activity activities | grep 'com.athlys.v10irlqa' > qa/foreground.txt || true
+          test -s qa/launch-opening.png && test -s qa/launch-postloading.png
+          if ! adb shell pidof com.athlys.v10irlqa | grep -Eq '[0-9]+'; then
+            adb logcat -d -s AndroidRuntime:E > qa/runtime-failure.txt || true
+            echo "::error::V11_PROCESS_EXITED"
+            exit 1
+          fi
+          # Repeat launch without Internet to verify native SDK bootstrap is self-contained.
+          adb shell am force-stop com.athlys.v10irlqa
+          adb shell settings put global airplane_mode_on 1
+          adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true >/dev/null 2>&1 || true
+          adb shell svc wifi disable || true
+          adb shell svc data disable || true
+          echo "airplane_mode=$(adb shell settings get global airplane_mode_on | tr -d '\r')" > qa/offline-state.txt
+          grep -qx 'airplane_mode=1' qa/offline-state.txt
+          adb shell am start -n com.athlys.v10irlqa/.MainActivity >> qa/launch.txt 2>&1
+          sleep 12
+          adb shell screencap -p /sdcard/athlys-v10-offline.png
+          adb pull /sdcard/athlys-v10-offline.png qa/launch-offline.png >/dev/null
+          test -s qa/launch-offline.png
+          # UIAutomator can crash its own UiAutomation process on Android 14.
+          # Keep it out of the app startup smoke to avoid a false AndroidRuntime failure.
+          adb shell dumpsys activity activities > qa/offline-activity.txt || true
+          if ! adb shell pidof com.athlys.v10irlqa | grep -Eq '[0-9]+'; then
+            adb logcat -d -b crash > qa/offline-crash-buffer.txt || true
+            adb logcat -d -s AndroidRuntime:E chromium:E cr_ChildProcessService:E libc:E > qa/offline-failure-logcat.txt || true
+            adb shell dumpsys activity activities > qa/offline-failure-activity.txt || true
+            adb shell dumpsys package com.athlys.v10irlqa > qa/offline-failure-package.txt || true
+            echo "::error::OFFLINE_APPLICATION_PROCESS_EXITED"; exit 1
+          fi
+          # Count only fatal crashes from Athlys itself, not unrelated emulator OS/UIAutomator faults.
+          if adb logcat -d -s AndroidRuntime:E | grep -F 'Process: com.athlys.v10irlqa' > qa/crash-check.txt; then
+            echo "::error::ATHLYS_APP_RUNTIME_FATAL_EXCEPTION"; exit 1
+          fi
+          echo "PASS: V11.1 installed, remained active, online and offline screenshots captured with local auth SDK and no fatal crash"
+          SCRIPT
+          chmod +x qa/run-emulator-smoke.sh
+
+      - name: Start V10 and capture opening / after-loading on Android 14
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          emulator-boot-timeout: 480
+          disable-animations: false
+          script: |
+            bash qa/run-emulator-smoke.sh
+
+      - name: Archive screenshots and status (no personal data)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: athlys-v10-flm-quantum-emulator-evidence
+          retention-days: 14
+          if-no-files-found: warn
+          path: qa/
