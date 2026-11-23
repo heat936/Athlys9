@@ -1,0 +1,264 @@
+name: Athlys V10 Training Studio + Trajectoire Android QA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/athlys-v10-training-studio-android-qa.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - name: Checkout private candidate without persisting credentials
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: f2d72f624b5f853f338512715e7fe34dfc9d36f8
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Verify immutable source and opening-to-loader contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "f2d72f624b5f853f338512715e7fe34dfc9d36f8"
+          node --check web/app.js
+          node --check web/mobile-opening-v10.js
+          node --check web/mobile.js
+          node <<'NODE'
+          const fs=require('node:fs'),assert=require('node:assert/strict');
+          const page=fs.readFileSync('web/mobile.html','utf8');
+          const opener=fs.readFileSync('web/mobile-opening-v10.js','utf8');
+          assert(page.includes('id="athlys-opening-v10"'));
+          assert(page.includes('id="athlys-auth-loader"'));
+          assert(!page.includes('<script defer src="/app.js"></script>'));
+          assert(page.includes('<script src="/mobile-opening-v10.js"></script>'));
+          assert(opener.includes('document.addEventListener("DOMContentLoaded",bootApp,{once:true})'));
+          assert(opener.includes('window.setTimeout(bootApp,3000)'));
+          assert(fs.readFileSync('web/app.js','utf8').includes('if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",init,{once:true})'));
+          assert(fs.readFileSync('web/app.js','utf8').includes('authWithTimeout(db.auth.getSession(),6500'));
+          assert(fs.readFileSync('web/app.js','utf8').includes('authWithTimeout(loadProfile(),7000'));
+          assert(fs.readFileSync('web/app.js','utf8').includes('authWithTimeout(fetchData(),10000'));
+          assert(!page.includes('\\n<link'));
+          assert(page.includes('athlys-v10-trajectoire.mp4'));
+          assert(opener.includes('document.documentElement.classList.remove("athlys-opening-v10-active")'));
+          assert(opener.includes('window.athlysSplashScreen.hide'));
+          assert(opener.includes('prefers-reduced-motion'));
+          console.log('PASS: opening before old loader, app deferred, reduced motion, native splash');
+          NODE
+
+      - name: Install and compile Web bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! (npm install --prefer-online --no-audit --no-fund && npm test && npm run build:web) >"$RUNNER_TEMP/v10-build-web.log" 2>&1; then
+            tail -n 50 "$RUNNER_TEMP/v10-build-web.log" | sed -E 's/(token|password|secret|key)[=:][^[:space:]]+/\1=[redacted]/gi'
+            echo "::error::V10_WEB_BUILD_FAILED"; exit 1
+          fi
+          echo "PASS: core unit tests and Web build"
+
+      - name: Fetch the exact official original opening video
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 2 --max-time 45 --silent --show-error \
+            'https://github.com/heat936/Athlys9/releases/download/athlys-v10-trajectoire/athlys-v10-trajectoire.mp4' \
+            -o web/assets/athlys-v10-trajectoire.mp4
+          test "$(stat -c %s web/assets/athlys-v10-trajectoire.mp4)" -eq 212829
+          test "$(sha256sum web/assets/athlys-v10-trajectoire.mp4 | cut -d' ' -f1)" = \
+            '78e80c868b6d4bb2b87d3248598d1943b48801f046cf603cfb2ddc8615408bef'
+          echo 'PASS: exact user-supplied Trajectoire 1080x1920 3s film, bundled offline'
+
+      - name: Retrieve visual assets from the already published Athlys V10 preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORIGIN='https://athlys-workspace-gjw87jqo2-adiceamlilian-6530.vercel.app'
+          for asset in \
+            assets/brand/symbol-free.svg assets/brand/symbol.svg \
+            assets/brand/lockup-horizontal-inverse.svg assets/brand/lockup-horizontal.svg \
+            assets/brand/lockup-vertical.svg assets/brand/track-editorial.webp \
+            assets/brand/icons.svg assets/brand/icon-192.png assets/brand/icon-512.png; do
+            mkdir -p "web/$(dirname "$asset")"
+            curl -fsSL --retry 2 --max-time 35 "$ORIGIN/$asset" -o "web/$asset"
+            test -s "web/$asset"
+          done
+          echo 'PASS: brand assets loaded for offline QA bundle'
+
+      - name: Configure side-by-side V10 Android candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs=require('node:fs');
+          const p='capacitor.config.json';
+          const c=JSON.parse(fs.readFileSync(p,'utf8'));
+          c.appId='com.athlys.v10studioqa';
+          c.appName='Athlys V10 Studio Test';
+          fs.writeFileSync(p,JSON.stringify(c,null,2)+'\n');
+          NODE
+          cp web/mobile.html web/index.html
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('web/index.html')
+          s=p.read_text()
+          s=s.replace('<head>','<head><style>html,body{background:#13213c;color:#F3F0EC;margin:0}</style>',1)
+          p.write_text(s)
+          PY
+          if ! (test -f android/gradlew || npx cap add android) >"$RUNNER_TEMP/v10-cap.log" 2>&1; then
+            echo "::error::V10_CAP_ADD_FAILED"; exit 1
+          fi
+          if ! npx cap sync android >>"$RUNNER_TEMP/v10-cap.log" 2>&1; then
+            tail -n 30 "$RUNNER_TEMP/v10-cap.log"
+            echo "::error::V10_CAP_SYNC_FAILED"; exit 1
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('android/app/build.gradle')
+          s=p.read_text()
+          # V10 is a separate QA package until the v9 signing key is available.
+          s,n=re.subn(r'versionCode\s+\d+', 'versionCode 101',s,count=1)
+          if n!=1: raise SystemExit('versionCode replacement failed')
+          s,n=re.subn(r'versionName\s+"[^"]+"', 'versionName "10.1.0-rc1"',s,count=1)
+          if n!=1: raise SystemExit('versionName replacement failed')
+          if 'coreLibraryDesugaringEnabled' not in s:
+              if 'compileOptions {' not in s:
+                  s=s.replace('android {','android {\n    compileOptions {\n      sourceCompatibility JavaVersion.VERSION_17\n      targetCompatibility JavaVersion.VERSION_17\n    }',1)
+              s=s.replace('compileOptions {','compileOptions {\n      coreLibraryDesugaringEnabled true',1)
+          if "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:" not in s:
+              s=s.replace('dependencies {',"dependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'",1)
+          p.write_text(s)
+          v=Path('android/variables.gradle')
+          t,n=re.subn(r'(minSdkVersion\s*=\s*)\d+',r'\g<1>26',v.read_text(),count=1)
+          if n!=1: raise SystemExit('minSdkVersion variable missing')
+          v.write_text(t)
+          strings=Path('android/app/src/main/res/values/strings.xml')
+          strings.write_text(strings.read_text().replace('>Athlys<','>Athlys V10 Studio Test<'))
+          # Permit the official spoken brand introduction on Android's WebView.
+          # Ordinary browsers still require a user gesture for unmuting.
+          files=list(Path('android/app/src/main/java').rglob('MainActivity.java'))
+          if len(files)==1:
+              activity=files[0]
+              original=activity.read_text()
+              replacement="""public class MainActivity extends BridgeActivity {
+                @Override public void onCreate(android.os.Bundle state) {
+                  super.onCreate(state);
+                  getBridge().getWebView().getSettings().setMediaPlaybackRequiresUserGesture(false);
+                  getBridge().getWebView().setBackgroundColor(android.graphics.Color.parseColor("#13213c"));
+                }
+              }"""
+              amended,n=re.subn(r'public class MainActivity extends BridgeActivity\s*\{\s*\}',replacement,original,count=1)
+              if n==1:
+                  activity.write_text(amended)
+              else:
+                  print('Android main activity already customised; no automatic overwrite')
+          PY
+          echo "PASS: isolated Android package com.athlys.v10studioqa version 10.0.0-rc1"
+
+      - name: Apply official Athlys visual identity to the Android native splash
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s web/assets/athlys-logo.png
+          test -s web/assets/athlys-logo.webp
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,shutil
+          res=Path('android/app/src/main/res')
+          # The OS splash can appear before the WebView's 3-second intro.
+          # Replace every generated Capacitor launcher raster with the brand asset.
+          replaced=0
+          for file in res.rglob('*'):
+              if not file.is_file() or not file.name.startswith('ic_launcher'):
+                  continue
+              if file.suffix=='.png':
+                  shutil.copyfile('web/assets/athlys-logo.png',file)
+                  replaced+=1
+              elif file.suffix=='.webp':
+                  shutil.copyfile('web/assets/athlys-logo.webp',file)
+                  replaced+=1
+          # Capacitor's launch resource is a drawable, distinct from the app icon.
+          for p in res.glob('drawable*/splash.png'):
+              p.unlink()
+          target=res/'drawable'/'splash.webp'
+          target.parent.mkdir(parents=True,exist_ok=True)
+          shutil.copyfile('web/assets/athlys-logo.webp',target)
+          icon=res/'drawable-nodpi'/'athlys_v10_splash_icon.webp'
+          icon.parent.mkdir(parents=True,exist_ok=True)
+          shutil.copyfile('web/assets/athlys-logo.webp',icon)
+          # Android 12+ uses the platform window-splash theme before the WebView.
+          styles=0
+          for file in res.glob('values*/styles.xml'):
+              original=file.read_text()
+              pattern=r'(<style\s+name="AppTheme.NoActionBarLaunch"[^>]*>)'
+              if not re.search(pattern,original):
+                  continue
+              add=('\n        <item name="android:windowBackground">#13213c</item>'
+                   '\n        <item name="android:statusBarColor">#13213c</item>'
+                   '\n        <item name="android:windowSplashScreenBackground">#13213c</item>'
+                   '\n        <item name="android:windowSplashScreenAnimatedIcon">@drawable/athlys_v10_splash_icon</item>'
+                   '\n        <item name="android:windowSplashScreenIconBackgroundColor">#13213c</item>')
+              updated,n=re.subn(pattern,lambda m:m.group(1)+add,original,count=1)
+              if n: file.write_text(updated)
+              styles+=n
+          if replaced==0 or styles==0:
+              raise SystemExit('Athlys launcher icon/theme assets were not applied')
+          print('PASS: branded Android icon rasters, drawable splash and launch theme; icons:',replaced,'styles:',styles)
+          PY
+
+      - name: Build and validate signed debug QA APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Maven Central can respond HTTP 429 on shared runners. Use Google's
+          # public Maven Central mirror first, preserving Maven Central fallback.
+          python3 - <<'PY'
+          from pathlib import Path
+          for filename in ('android/build.gradle','android/settings.gradle','android/app/build.gradle'):
+              p=Path(filename)
+              if not p.exists(): continue
+              source=p.read_text()
+              source=source.replace('mavenCentral()',"""maven { url 'https://maven-central.storage-download.googleapis.com/maven2/' }
+                  mavenCentral()""")
+              p.write_text(source)
+          PY
+          chmod +x android/gradlew
+          if ! (cd android && ./gradlew assembleDebug --no-daemon --refresh-dependencies) >"$RUNNER_TEMP/v10-android.log" 2>&1; then
+            tail -n 70 "$RUNNER_TEMP/v10-android.log" | sed -E 's/(token|password|secret|key)[=:][^[:space:]]+/\1=[redacted]/gi'
+            echo "::error::V10_ANDROID_BUILD_FAILED"; exit 1
+          fi
+          mkdir -p release
+          cp android/app/build/outputs/apk/debug/app-debug.apk release/Athlys-V10-Test-Android.apk
+          unzip -t release/Athlys-V10-Test-Android.apk >"$RUNNER_TEMP/v10-zip.log"
+          unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/mobile-opening-v10.js'
+          unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/mobile-opening-v10.css'
+          unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/assets/athlys-v10-trajectoire.mp4'
+          unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/app.js'
+          unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/athlys-strength-lab.js'
+          BUILD_TOOLS="$(ls -d "${ANDROID_HOME}/build-tools/"* | sort -V | tail -1)"
+          "$BUILD_TOOLS/apksigner" verify --verbose release/Athlys-V10-Test-Android.apk > "$RUNNER_TEMP/v10-signature.log"
+          sha256sum release/Athlys-V10-Test-Android.apk > release/SHA256SUMS.txt
+          printf 'Athlys V10 QA - Trajectoire intro and bounded auth - package com.athlys.v10studioqa - debug signing only - does NOT update v9\n' > release/README.txt
+          echo "PASS: V10 QA APK built, ZIP verified, app assets present and debug signature verified"
+
+      - name: Upload distributable QA files
+        uses: actions/upload-artifact@v4
+        with:
+          name: athlys-v10-qa-android
+          retention-days: 30
+          if-no-files-found: error
+          path: release/
