@@ -171,7 +171,7 @@ jobs:
           unzip -t release/Athlys-V10-Test-Android.apk >"$RUNNER_TEMP/v10-zip.log"
           unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/mobile-opening-v10.js'
           unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/mobile-opening-v10.css'
-          unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/assets/athlys-opening-v10.mp4'
+          unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/assets/athlys-v10-trajectoire.mp4'
           unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/app.js'
           BUILD_TOOLS="$(ls -d "${ANDROID_HOME}/build-tools/"* | sort -V | tail -1)"
           "$BUILD_TOOLS/apksigner" verify --verbose release/Athlys-V10-Test-Android.apk > "$RUNNER_TEMP/v10-signature.log"
