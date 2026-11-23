@@ -1,0 +1,96 @@
+name: Athlys V11 Web QA — deployed semantic RPE, live login form and staging gate
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-v11-rpe-web-http-ui-qa.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qa:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      BASE: https://athlys-v10-irl-staging.vercel.app
+    steps:
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - name: Verify exact deployed V11 release files, no unauthorized endpoint and no GGUF weights
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qa
+          node <<'NODE'
+          const assert=require('node:assert/strict');
+          async function read(path){
+            const r=await fetch(process.env.BASE+path,{signal:AbortSignal.timeout(30000)});
+            assert.equal(r.status,200,path+' HTTP '+r.status);
+            const t=await r.text();assert(t.length>60,path+' unexpectedly short');return t;
+          }
+          (async()=>{
+            const assets=['/app.html','/mobile.html','/app.js','/athlys-local-intelligence.js',
+              '/athlys-rpe-semantic-ml.js','/athlys-excel-import.js','/feather-language.js','/sw.js'];
+            const body={};
+            for(const p of assets){body[p]=await read(p);console.log('PASS V11 HTTP '+p+' bytes='+body[p].length)}
+            assert(body['/app.html'].includes('/athlys-rpe-semantic-ml.js'));
+            assert(body['/mobile.html'].includes('/athlys-rpe-semantic-ml.js'));
+            assert(body['/sw.js'].includes('athlys-shell-v47-semantic-rpe'));
+            assert(body['/app.js'].includes('languageModel.enrichWithLocalLM'));
+            assert(body['/athlys-local-intelligence.js'].includes('semantic.enhance'));
+            assert(body['/athlys-rpe-semantic-ml.js'].includes('walk_forward_no_gain'));
+            const config=await read('/app-config.js');
+            assert(config.includes('avonfqgechvrnqxmbufn.supabase.co'));
+            assert(!config.includes('ixccwxonchzzjdjeajzw'));
+            const model=await fetch(process.env.BASE+'/athlys-light-lm-runtime/model.gguf',{signal:AbortSignal.timeout(12000)});
+            assert.notEqual(model.status,200,'GGUF model weights must not be served without opt-in');
+            console.log('PASS V11 deployed model contracts and Supabase STAGING isolation');
+          })().catch(e=>{console.error('NO_GO_WEB '+e.stack);process.exitCode=1});
+          NODE
+      - name: Install isolated Chromium harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund --no-save --prefix qa playwright-core@1.58.2
+          (command -v google-chrome || command -v chromium || command -v chromium-browser) > qa/chrome.txt
+      - name: Inspect running V11 browser model and real Auth form on desktop/mobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > qa/browser.cjs <<'NODE'
+          const {chromium}=require('playwright-core'),assert=require('node:assert/strict'),fs=require('node:fs');
+          (async()=>{
+            const browser=await chromium.launch({executablePath:fs.readFileSync('qa/chrome.txt','utf8').trim(),args:['--no-sandbox']});
+            const results=[];
+            try{
+              for(const [route,mobile] of [['/app.html',false],['/mobile.html',true]]){
+                const context=await browser.newContext({viewport:mobile?{width:390,height:844}:{width:1380,height:900},isMobile:mobile});
+                const page=await context.newPage(),jsErrors=[];
+                page.on('pageerror',err=>jsErrors.push(String(err.message).slice(0,160)));
+                const response=await page.goto(process.env.BASE+route,{waitUntil:'domcontentloaded',timeout:35000});
+                assert.equal(response?.status(),200);
+                await page.waitForFunction(()=>!!window.AthlysRPESemanticML,{timeout:20000});
+                const result=await page.evaluate(()=>{
+                  const r=window.AthlysRPESemanticML.extract('Fractionné 5 x 400 m VMA, récupération 2 min');
+                  return {modality:r.modality,distance:r.workDistanceM,recovery:r.recoverySeconds,
+                     version:window.AthlysRPESemanticML.version,server:window.ATHLYS_CONFIG?.url};
+                });
+                assert.deepEqual([result.modality,result.distance,result.recovery],['interval',2000,120]);
+                assert(result.server.includes('avonfqgechvrnqxmbufn'));
+                await page.locator('input[name="email"]').first().waitFor({timeout:22000});
+                assert(await page.locator('input[name="email"]').first().isVisible(),'auth unavailable');
+                results.push({route,semantic:'PASS',authForm:'PASS',staging:true,errors:jsErrors.slice(0,3)});
+                console.log('PASS deployed RPE semantic model and login UI '+route);
+                await context.close();
+              }
+              fs.writeFileSync('qa/v11-web-ui-report.json',JSON.stringify({status:'PASS',tests:results,claim95percent:false},null,2));
+            }finally{await browser.close()}
+          })().catch(e=>{console.error('NO_GO_V11_BROWSER '+e.message);process.exitCode=1});
+          NODE
+          node qa/browser.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: athlys-v11-web-rpe-ui-receipt
+          retention-days: 14
+          if-no-files-found: ignore
+          path: qa/v11-web-ui-report.json
