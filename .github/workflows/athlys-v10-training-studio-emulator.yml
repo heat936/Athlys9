@@ -1,0 +1,113 @@
+name: Athlys V10 Training Studio — Android 14 emulator smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/athlys-v10-training-studio-emulator.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  emulator:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Download precisely identified V10 QA APK
+        uses: actions/download-artifact@v4
+        with:
+          name: athlys-v10-qa-android
+          run-id: 45240529452
+          github-token: ${{ github.token }}
+          path: candidate
+
+      - name: Check APK integrity, package and opening files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s candidate/Athlys-V10-Test-Android.apk
+          expected="$(awk '{print $1}' candidate/SHA256SUMS.txt)"
+          actual="$(sha256sum candidate/Athlys-V10-Test-Android.apk | cut -d' ' -f1)"
+          test "$actual" = "$expected"
+          unzip -t candidate/Athlys-V10-Test-Android.apk > /tmp/v10-zip.log
+          unzip -Z1 candidate/Athlys-V10-Test-Android.apk | grep -q 'assets/public/mobile-opening-v10.js'
+          unzip -Z1 candidate/Athlys-V10-Test-Android.apk | grep -q 'assets/public/mobile-opening-v10.css'
+          mkdir -p qa
+          printf 'source-artifact=45240529452\nsha256=%s\n' "$actual" > qa/manifest.txt
+          echo 'PASS: isolated V10 APK verified before emulator'
+
+      - name: Enable KVM for emulator where available
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules > /dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -w /dev/kvm || echo "::warning::KVM not available; emulator may fail to boot"
+
+      - name: Prepare a single-shell Android emulator smoke script
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > qa/run-emulator-smoke.sh <<'SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          adb install -r candidate/Athlys-V10-Test-Android.apk > qa/install.txt 2>&1
+          adb shell am start -n com.athlys.v10studioqa/.MainActivity > qa/launch.txt 2>&1
+          active=0
+          for i in $(seq 1 45); do
+            if adb shell pidof com.athlys.v10studioqa | grep -Eq '[0-9]+'; then active=1; break; fi
+            sleep 1
+          done
+          if [ "$active" -ne 1 ]; then
+            adb shell dumpsys activity activities > qa/activity-failure.txt || true
+            adb logcat -d -s AndroidRuntime:E > qa/runtime-failure.txt || true
+            echo "::error::V10_PROCESS_NOT_STARTED"
+            exit 1
+          fi
+          sleep 2
+          adb shell screencap -p /sdcard/athlys-v10-opening.png
+          adb pull /sdcard/athlys-v10-opening.png qa/launch-opening.png >/dev/null
+          sleep 2
+          adb shell screencap -p /sdcard/athlys-v10-transition.png
+          adb pull /sdcard/athlys-v10-transition.png qa/launch-transition.png >/dev/null
+          sleep 7
+          adb shell screencap -p /sdcard/athlys-v10-postloading.png
+          adb pull /sdcard/athlys-v10-postloading.png qa/launch-postloading.png >/dev/null
+          adb shell dumpsys activity activities | grep 'com.athlys.v10studioqa' > qa/foreground.txt || true
+          test -s qa/launch-opening.png && test -s qa/launch-postloading.png
+          if ! adb shell pidof com.athlys.v10studioqa | grep -Eq '[0-9]+'; then
+            adb logcat -d -s AndroidRuntime:E > qa/runtime-failure.txt || true
+            echo "::error::V10_PROCESS_EXITED"
+            exit 1
+          fi
+          if adb logcat -d -s AndroidRuntime:E | grep -E 'FATAL EXCEPTION|Process: com.athlys.v10studioqa' > qa/crash-check.txt; then
+            echo "::error::ANDROID_RUNTIME_FATAL_EXCEPTION"; exit 1
+          fi
+          echo "PASS: V10 installed, remained active, two screenshots captured and no fatal crash"
+          SCRIPT
+          chmod +x qa/run-emulator-smoke.sh
+
+      - name: Start V10 and capture opening / after-loading on Android 14
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          emulator-boot-timeout: 480
+          disable-animations: false
+          script: |
+            bash qa/run-emulator-smoke.sh
+
+      - name: Archive screenshots and status (no personal data)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: athlys-v10-studio-emulator-evidence
+          retention-days: 14
+          if-no-files-found: warn
+          path: qa/
