@@ -48,8 +48,11 @@ jobs:
           assert(page.includes('<script src="/mobile-opening-v10.js"></script>'));
           assert(opener.includes('document.addEventListener("DOMContentLoaded",bootApp,{once:true})'));
           assert(opener.includes('window.setTimeout(bootApp,3000)'));
-          assert(fs.readFileSync('web/app.js','utf8').includes('if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",init,{once:true})'));
+          assert(fs.readFileSync('web/app.js','utf8').includes('if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",startAthlysOnce,{once:true})'));
           assert(fs.readFileSync('web/app.js','utf8').includes('authWithTimeout(db.auth.getSession(),6500'));
+          assert(page.includes('src="/supabase-client.bundle.js"'));
+          assert(!page.includes('src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js'));
+          assert(fs.readFileSync('web/app.js','utf8').includes('while(Date.now()-startedWaiting<6000)'));
           assert(fs.readFileSync('web/app.js','utf8').includes('authWithTimeout(loadProfile(),7000'));
           assert(fs.readFileSync('web/app.js','utf8').includes('authWithTimeout(fetchData(),10000'));
           assert(!page.includes('\\n<link'));
