@@ -1,4 +1,4 @@
-name: Athlys V11 Web QA — deployed semantic RPE, live login form and staging gate
+name: Athlys V11.1 Web QA — strict temporal RPE cutoff and verified live UI
 on:
   push:
     branches: [main]
@@ -37,6 +37,7 @@ jobs:
             assert(body['/sw.js'].includes('athlys-shell-v47-semantic-rpe'));
             assert(body['/app.js'].includes('languageModel.enrichWithLocalLM'));
             assert(body['/athlys-local-intelligence.js'].includes('semantic.enhance'));
+            assert(body['/athlys-local-intelligence.js'].includes('avoid same-day/forward labels'));
             assert(body['/athlys-rpe-semantic-ml.js'].includes('walk_forward_no_gain'));
             const config=await read('/app-config.js');
             assert(config.includes('avonfqgechvrnqxmbufn.supabase.co'));
