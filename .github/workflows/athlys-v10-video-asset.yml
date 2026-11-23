@@ -1,0 +1,29 @@
+name: Athlys official opening video integrity and distribution
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-v10-video-asset.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Fetch official brand video from creator-export share
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 2 --max-time 45 --silent --show-error \
+            'https://at.adobe.com/uf53Yl012Hd8Qkvx' -o athlys-opening-v10.mp4
+          test "$(stat -c %s athlys-opening-v10.mp4)" -eq 140824
+          test "$(sha256sum athlys-opening-v10.mp4 | cut -d' ' -f1)" = '8833b04706df146f23866d266e60ba5368097c40bc2842ea1525d1eb6ee9fe37'
+          ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1 athlys-opening-v10.mp4 | grep -E 'duration=3'
+          echo 'PASS: official 1080x1920, 3s Athlys opening MP4 verified byte-identical'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: athlys-official-v10-opening-video
+          retention-days: 30
+          if-no-files-found: error
+          path: athlys-opening-v10.mp4
