@@ -1,0 +1,49 @@
+name: Athlys V10 Training Studio - isolated CI
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-v10-studio-ci.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  studio:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 57a729069311b519ba037ca9d6a0ab49b6fdab6f
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check syntax and exact source revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '57a729069311b519ba037ca9d6a0ab49b6fdab6f'
+          node --check web/app.js
+          node --check web/studio-core.js
+          node --check web/studio.js
+          node --check web/sw.js
+          node --check web/mobile-opening-v10.js
+          echo "PASS: source and all entry scripts syntax"
+      - name: Run all mandatory domain tests and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefer-online --no-audit --no-fund >/tmp/athlys-studio-install.log 2>&1 || { echo "::error::NPM_INSTALL_FAILED"; exit 1; }
+          npm test > /tmp/athlys-studio-test.log 2>&1 || {
+            grep -E 'not ok|error:|failureType|Expected|actual|ERR_' /tmp/athlys-studio-test.log | tail -55 || true
+            echo "::error::DOMAIN_TESTS_FAILED"
+            exit 1
+          }
+          npm run build:web > /tmp/athlys-studio-build.log 2>&1 || { echo "::error::WEB_BUILD_FAILED"; exit 1; }
+          grep -E '^# tests|^# pass|^# fail|^ℹ tests|^ℹ pass|^ℹ fail' /tmp/athlys-studio-test.log | tail -7
+          echo "PASS: local intelligence + Studio domain tests + Web build"
+      - name: Guard private code and credentials
+        if: always()
+        run: echo "No source, secret, database contents or health observations uploaded."
