@@ -1,0 +1,53 @@
+name: Athlys 2026-11-23 strategy audit — private auth branch validation
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-strategy-auth-audit-ci.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - name: Checkout immutable private Athlys audit candidate
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: e5c9b61dd13b271e6b153cb24252da4df2f9da19
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate source identity, scripts and auth contract tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "e5c9b61dd13b271e6b153cb24252da4df2f9da19"
+          node --check web/sw.js
+          node --check tests/auth-bundle-contract.test.cjs
+          node -e 'const p=require("./package.json");if(!p.scripts.test.includes("auth-bundle-contract.test.cjs"))process.exit(1)'
+          echo "PASS: pinned audit SHA, syntax and test wiring"
+      - name: Run project test suite and Web build without exposing private source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! npm install --no-audit --no-fund >/tmp/athlys-auth-install.log 2>&1; then
+            echo "::error::NPM_INSTALL_FAILED"; exit 1
+          fi
+          if ! npm test >/tmp/athlys-auth-test.log 2>&1; then
+            grep -E '^# tests |^# pass |^# fail |^not ok|^ℹ tests |^ℹ pass |^ℹ fail ' /tmp/athlys-auth-test.log | tail -n 20 || true
+            echo "::error::AUTH_TEST_SUITE_FAILED"; exit 1
+          fi
+          if ! npm run build:web >/tmp/athlys-auth-build.log 2>&1; then
+            echo "::error::AUTH_WEB_BUILD_FAILED"; exit 1
+          fi
+          test -s web/supabase-client.bundle.js
+          test -s web/native-app.bundle.js
+          test -s web/intent-launcher.bundle.js
+          node --test tests/auth-bundle-contract.test.cjs >/tmp/athlys-auth-contract.log 2>&1 || { echo "::error::CONTRACT_TEST_FAILED"; exit 1; }
+          grep -E '^# tests |^# pass |^# fail |^ℹ tests |^ℹ pass |^ℹ fail ' /tmp/athlys-auth-contract.log | tail -n 4 || true
+          echo "PASS: audit tests, generated local Auth SDK, browser compilation"
