@@ -111,6 +111,10 @@ jobs:
             echo "::error::OFFLINE_AUTH_SDK_NOT_READY"; exit 1
           fi
           if ! adb shell pidof com.athlys.v10irlqa | grep -Eq '[0-9]+'; then
+            adb logcat -d -b crash > qa/offline-crash-buffer.txt || true
+            adb logcat -d -s AndroidRuntime:E chromium:E cr_ChildProcessService:E libc:E > qa/offline-failure-logcat.txt || true
+            adb shell dumpsys activity activities > qa/offline-failure-activity.txt || true
+            adb shell dumpsys package com.athlys.v10irlqa > qa/offline-failure-package.txt || true
             echo "::error::OFFLINE_APPLICATION_PROCESS_EXITED"; exit 1
           fi
           if adb logcat -d -s AndroidRuntime:E | grep -E 'FATAL EXCEPTION|Process: com.athlys.v10irlqa' > qa/crash-check.txt; then
