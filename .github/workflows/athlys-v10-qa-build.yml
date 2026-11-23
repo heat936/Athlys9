@@ -1,0 +1,139 @@
+name: Athlys V10 Android QA candidate (isolated private source)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/athlys-v10-qa-build.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - name: Checkout private candidate without persisting credentials
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 37f05b29cb215785b90d03de19dd7a2e948ebf5d
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Verify immutable source and opening-to-loader contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "37f05b29cb215785b90d03de19dd7a2e948ebf5d"
+          node --check web/app.js
+          node --check web/mobile-opening-v10.js
+          node --check web/mobile.js
+          node <<'NODE'
+          const fs=require('node:fs'),assert=require('node:assert/strict');
+          const page=fs.readFileSync('web/mobile.html','utf8');
+          const opener=fs.readFileSync('web/mobile-opening-v10.js','utf8');
+          assert(page.includes('id="athlys-opening-v10"'));
+          assert(page.includes('id="athlys-auth-loader"'));
+          assert(!page.includes('<script defer src="/app.js"></script>'));
+          assert(page.includes('<script src="/mobile-opening-v10.js"></script>'));
+          assert(opener.includes('window.setTimeout(bootApp,300)'));
+          assert(opener.includes('document.documentElement.classList.remove("athlys-opening-v10-active")'));
+          assert(opener.includes('window.athlysSplashScreen.hide'));
+          assert(opener.includes('prefers-reduced-motion'));
+          console.log('PASS: opening before old loader, app deferred, reduced motion, native splash');
+          NODE
+
+      - name: Install and compile Web bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! (npm install --prefer-online --no-audit --no-fund && npm test && npm run build:web) >"$RUNNER_TEMP/v10-build-web.log" 2>&1; then
+            tail -n 50 "$RUNNER_TEMP/v10-build-web.log" | sed -E 's/(token|password|secret|key)[=:][^[:space:]]+/\1=[redacted]/gi'
+            echo "::error::V10_WEB_BUILD_FAILED"; exit 1
+          fi
+          echo "PASS: core unit tests and Web build"
+
+      - name: Configure side-by-side V10 Android candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs=require('node:fs');
+          const p='capacitor.config.json';
+          const c=JSON.parse(fs.readFileSync(p,'utf8'));
+          c.appId='com.athlys.v10preview';
+          c.appName='Athlys V10 Test';
+          fs.writeFileSync(p,JSON.stringify(c,null,2)+'\n');
+          NODE
+          cp web/mobile.html web/index.html
+          if ! (test -f android/gradlew || npx cap add android) >"$RUNNER_TEMP/v10-cap.log" 2>&1; then
+            echo "::error::V10_CAP_ADD_FAILED"; exit 1
+          fi
+          if ! npx cap sync android >>"$RUNNER_TEMP/v10-cap.log" 2>&1; then
+            tail -n 30 "$RUNNER_TEMP/v10-cap.log"
+            echo "::error::V10_CAP_SYNC_FAILED"; exit 1
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('android/app/build.gradle')
+          s=p.read_text()
+          # V10 is a separate QA package until the v9 signing key is available.
+          s,n=re.subn(r'versionCode\s+\d+', 'versionCode 100',s,count=1)
+          if n!=1: raise SystemExit('versionCode replacement failed')
+          s,n=re.subn(r'versionName\s+"[^"]+"', 'versionName "10.0.0-rc1"',s,count=1)
+          if n!=1: raise SystemExit('versionName replacement failed')
+          if 'coreLibraryDesugaringEnabled' not in s:
+              if 'compileOptions {' not in s:
+                  s=s.replace('android {','android {\n    compileOptions {\n      sourceCompatibility JavaVersion.VERSION_17\n      targetCompatibility JavaVersion.VERSION_17\n    }',1)
+              s=s.replace('compileOptions {','compileOptions {\n      coreLibraryDesugaringEnabled true',1)
+          if "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:" not in s:
+              s=s.replace('dependencies {',"dependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'",1)
+          p.write_text(s)
+          v=Path('android/variables.gradle')
+          t,n=re.subn(r'(minSdkVersion\s*=\s*)\d+',r'\g<1>26',v.read_text(),count=1)
+          if n!=1: raise SystemExit('minSdkVersion variable missing')
+          v.write_text(t)
+          strings=Path('android/app/src/main/res/values/strings.xml')
+          strings.write_text(strings.read_text().replace('>Athlys<','>Athlys V10 Test<'))
+          PY
+          echo "PASS: isolated Android package com.athlys.v10preview version 10.0.0-rc1"
+
+      - name: Build and validate signed debug QA APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x android/gradlew
+          if ! (cd android && ./gradlew assembleDebug --no-daemon) >"$RUNNER_TEMP/v10-android.log" 2>&1; then
+            tail -n 70 "$RUNNER_TEMP/v10-android.log" | sed -E 's/(token|password|secret|key)[=:][^[:space:]]+/\1=[redacted]/gi'
+            echo "::error::V10_ANDROID_BUILD_FAILED"; exit 1
+          fi
+          mkdir -p release
+          cp android/app/build/outputs/apk/debug/app-debug.apk release/Athlys-V10-Test-Android.apk
+          unzip -t release/Athlys-V10-Test-Android.apk >"$RUNNER_TEMP/v10-zip.log"
+          unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/mobile-opening-v10.js'
+          unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/mobile-opening-v10.css'
+          unzip -Z1 release/Athlys-V10-Test-Android.apk | grep -q 'assets/public/app.js'
+          BUILD_TOOLS="$(ls -d "${ANDROID_HOME}/build-tools/"* | sort -V | tail -1)"
+          "$BUILD_TOOLS/apksigner" verify --verbose release/Athlys-V10-Test-Android.apk > "$RUNNER_TEMP/v10-signature.log"
+          sha256sum release/Athlys-V10-Test-Android.apk > release/SHA256SUMS.txt
+          printf 'Athlys V10 QA - package com.athlys.v10preview - debug signing only - does NOT update v9\n' > release/README.txt
+          echo "PASS: V10 QA APK built, ZIP verified, app assets present and debug signature verified"
+
+      - name: Upload distributable QA files
+        uses: actions/upload-artifact@v4
+        with:
+          name: athlys-v10-qa-android
+          retention-days: 30
+          if-no-files-found: error
+          path: release/
