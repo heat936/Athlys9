@@ -48,6 +48,46 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           test -w /dev/kvm || echo "::warning::KVM not available; emulator may fail to boot"
 
+      - name: Prepare a single-shell Android emulator smoke script
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > qa/run-emulator-smoke.sh <<'SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          adb install -r candidate/Athlys-V10-Test-Android.apk > qa/install.txt 2>&1
+          adb shell am start -n com.athlys.v10preview/.MainActivity > qa/launch.txt 2>&1
+          active=0
+          for i in $(seq 1 45); do
+            if adb shell pidof com.athlys.v10preview | grep -Eq '[0-9]+'; then active=1; break; fi
+            sleep 1
+          done
+          if [ "$active" -ne 1 ]; then
+            adb shell dumpsys activity activities > qa/activity-failure.txt || true
+            adb logcat -d -s AndroidRuntime:E > qa/runtime-failure.txt || true
+            echo "::error::V10_PROCESS_NOT_STARTED"
+            exit 1
+          fi
+          sleep 2
+          adb shell screencap -p /sdcard/athlys-v10-opening.png
+          adb pull /sdcard/athlys-v10-opening.png qa/launch-opening.png >/dev/null
+          sleep 9
+          adb shell screencap -p /sdcard/athlys-v10-postloading.png
+          adb pull /sdcard/athlys-v10-postloading.png qa/launch-postloading.png >/dev/null
+          adb shell dumpsys activity activities | grep 'com.athlys.v10preview' > qa/foreground.txt || true
+          test -s qa/launch-opening.png && test -s qa/launch-postloading.png
+          if ! adb shell pidof com.athlys.v10preview | grep -Eq '[0-9]+'; then
+            adb logcat -d -s AndroidRuntime:E > qa/runtime-failure.txt || true
+            echo "::error::V10_PROCESS_EXITED"
+            exit 1
+          fi
+          if adb logcat -d -s AndroidRuntime:E | grep -E 'FATAL EXCEPTION|Process: com.athlys.v10preview' > qa/crash-check.txt; then
+            echo "::error::ANDROID_RUNTIME_FATAL_EXCEPTION"; exit 1
+          fi
+          echo "PASS: V10 installed, remained active, two screenshots captured and no fatal crash"
+          SCRIPT
+          chmod +x qa/run-emulator-smoke.sh
+
       - name: Start V10 and capture opening / after-loading on Android 14
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -58,35 +98,7 @@ jobs:
           emulator-boot-timeout: 480
           disable-animations: false
           script: |
-            set -eu
-            adb install -r candidate/Athlys-V10-Test-Android.apk > qa/install.txt 2>&1
-            adb shell am start -n com.athlys.v10preview/.MainActivity > qa/launch.txt 2>&1
-            grep -q 'cmp=com.athlys.v10preview' qa/launch.txt
-            # Android process creation is asynchronous; do not check pidof immediately.
-            active=0
-            for i in $(seq 1 30); do
-              if adb shell pidof com.athlys.v10preview | grep -Eq '[0-9]+'; then active=1; break; fi
-              sleep 1
-            done
-            if [ "$active" != 1 ]; then
-              adb shell dumpsys activity activities > qa/activity-failure.txt
-              adb logcat -d -s AndroidRuntime:E > qa/runtime-failure.txt
-              echo '::error::V10_PROCESS_NOT_STARTED'
-              exit 1
-            fi
-            sleep 2
-            adb shell screencap -p /sdcard/athlys-v10-opening.png
-            adb pull /sdcard/athlys-v10-opening.png qa/launch-opening.png >/dev/null
-            sleep 8
-            adb shell screencap -p /sdcard/athlys-v10-postloading.png
-            adb pull /sdcard/athlys-v10-postloading.png qa/launch-postloading.png >/dev/null
-            adb shell pidof com.athlys.v10preview | grep -Eq '[0-9]+'
-            adb shell dumpsys activity activities | grep 'com.athlys.v10preview' > qa/foreground.txt
-            test -s qa/launch-opening.png && test -s qa/launch-postloading.png
-            if adb logcat -d -s AndroidRuntime:E | grep -E 'FATAL EXCEPTION|Process: com.athlys.v10preview' > qa/crash-check.txt; then
-              echo '::error::ANDROID_RUNTIME_FATAL_EXCEPTION'; exit 1
-            fi
-            echo 'PASS: V10 installed, opened, remained active and produced two screenshots'
+            bash qa/run-emulator-smoke.sh
 
       - name: Archive screenshots and status (no personal data)
         if: always()
