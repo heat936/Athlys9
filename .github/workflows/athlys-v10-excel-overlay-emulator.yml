@@ -1,4 +1,4 @@
-name: Athlys V10 Excel overlay — Android 14 staging and offline smoke
+name: Athlys V10 Excel paired RPE — Android 14 offline and startup smoke
 
 on:
   push:
@@ -22,8 +22,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p candidate
-          gh release download athlys-v10-excel-overlay-qa-20261123 --repo heat936/Athlys9 --pattern Athlys-V10-Excel-IRL.apk --dir candidate
-          gh release download athlys-v10-excel-overlay-qa-20261123 --repo heat936/Athlys9 --pattern SHA256SUMS.txt --dir candidate
+          gh release download athlys-v10-excel-paired-rpe-qa-20261123 --repo heat936/Athlys9 --pattern Athlys-V10-Excel-IRL.apk --dir candidate
+          gh release download athlys-v10-excel-paired-rpe-qa-20261123 --repo heat936/Athlys9 --pattern SHA256SUMS.txt --dir candidate
 
       - name: Check APK integrity, package and opening files
         shell: bash
@@ -41,8 +41,10 @@ jobs:
           for f in athlys-training-intelligence.js athlys-xlsx-reader.js athlys-excel-import.js athlys-excel-import.css; do
             unzip -Z1 candidate/Athlys-V10-Excel-IRL.apk | grep -qx "assets/public/$f"
           done
+          unzip -p candidate/Athlys-V10-Excel-IRL.apk assets/public/athlys-training-intelligence.js | grep -q 'metrics.planned_rpe=r.plannedRpe'
+          unzip -p candidate/Athlys-V10-Excel-IRL.apk assets/public/athlys-excel-import.js | grep -q 'data-excel-page="next"'
           mkdir -p qa
-          printf 'source-artifact=45270497735\nsha256=%s\n' "$actual" > qa/manifest.txt
+          printf 'source-artifact=45272626037\nsha256=%s\n' "$actual" > qa/manifest.txt
           echo 'PASS: isolated V10 APK verified before emulator'
 
       - name: Enable KVM for emulator where available
