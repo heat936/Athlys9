@@ -1,17 +1,20 @@
-name: Athlys official opening video integrity and distribution
+name: Athlys official V10 opening — verified media release
 on:
   push:
     branches: [main]
     paths: [.github/workflows/athlys-v10-video-asset.yml]
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
-  verify:
+  publish:
     runs-on: ubuntu-24.04
-    timeout-minutes: 6
+    timeout-minutes: 8
     steps:
-      - name: Fetch official brand video from creator-export share
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Fetch brand-approved MP4 and verify exact checksum
         shell: bash
         run: |
           set -euo pipefail
@@ -19,11 +22,21 @@ jobs:
             'https://at.adobe.com/uf53Yl012Hd8Qkvx' -o athlys-opening-v10.mp4
           test "$(stat -c %s athlys-opening-v10.mp4)" -eq 140824
           test "$(sha256sum athlys-opening-v10.mp4 | cut -d' ' -f1)" = '8833b04706df146f23866d266e60ba5368097c40bc2842ea1525d1eb6ee9fe37'
-          ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1 athlys-opening-v10.mp4 | grep -E 'duration=3'
-          echo 'PASS: official 1080x1920, 3s Athlys opening MP4 verified byte-identical'
-      - uses: actions/upload-artifact@v4
-        with:
-          name: athlys-official-v10-opening-video
-          retention-days: 30
-          if-no-files-found: error
-          path: athlys-opening-v10.mp4
+          file athlys-opening-v10.mp4 | grep -E 'ISO Media|MP4' >/dev/null
+          echo 'PASS: official original Athlys opening MP4 byte-identical'
+      - name: Publish verified branded video as stable public release asset
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view athlys-v10-opening >/dev/null 2>&1; then
+            gh release upload athlys-v10-opening athlys-opening-v10.mp4 --clobber
+          else
+            gh release create athlys-v10-opening athlys-opening-v10.mp4 \
+              --title 'Athlys V10 - animation d ouverture officielle' \
+              --notes 'Animation officielle couleur 1080x1920 3 secondes, avec prononciation Athlys. SHA256 vérifiée. Média de marque uniquement.' \
+              --prerelease
+          fi
+          gh release view athlys-v10-opening --json assets --jq '.assets[].name' | grep -qx 'athlys-opening-v10.mp4'
+          echo 'PASS: permanent public release asset published'
