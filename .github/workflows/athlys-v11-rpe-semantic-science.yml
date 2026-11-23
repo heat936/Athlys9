@@ -11,12 +11,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 22
     env:
-      SOURCE_SHA: ec792a04abf181af1c49fc982dcdcad0ff6a051d
+      SOURCE_SHA: bfc361f6cff57128f50d292478e5d97c1a9f678b
     steps:
       - uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: ec792a04abf181af1c49fc982dcdcad0ff6a051d
+          ref: bfc361f6cff57128f50d292478e5d97c1a9f678b
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
