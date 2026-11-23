@@ -1,0 +1,87 @@
+name: Athlys V11 RPE — real Web and Mobile browser scientific smoke
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/athlys-v11-rpe-semantic-browser.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated headless Chromium
+        run: |
+          set -euo pipefail
+          npm install --no-save --prefix /tmp/athlys-browser playwright@1.57.0 > /tmp/npm-test.log 2>&1
+          /tmp/athlys-browser/node_modules/.bin/playwright install --with-deps chromium > /tmp/browser-install.log 2>&1
+      - name: Navigate real staging Web pages and inspect login UX
+        env:
+          BASE: https://athlys-v10-irl-staging.vercel.app
+        run: |
+          set -euo pipefail
+          mkdir -p qa
+          NODE_PATH=/tmp/athlys-browser/node_modules node <<'NODE'
+          const {chromium}=require('playwright');
+          const assert=require('node:assert/strict');
+          const fs=require('node:fs');
+          (async()=>{
+            const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+            const results=[];
+            for(const [route,mobile] of [['/app.html',false],['/mobile.html',true]]){
+              const context=await browser.newContext({viewport:mobile?{width:390,height:844}:{width:1365,height:900},isMobile:mobile,deviceScaleFactor:1});
+              const page=await context.newPage();
+              const exceptions=[];
+              page.on('pageerror',e=>exceptions.push(String(e.message).slice(0,160)));
+              const resp=await page.goto(process.env.BASE+route,{waitUntil:'domcontentloaded',timeout:30000});
+              assert.equal(resp?.status(),200,route+' HTTP');
+              await page.waitForFunction(()=>!!window.ATHLYS_CONFIG?.url,{timeout:15000});
+              const origin=await page.evaluate(()=>window.ATHLYS_CONFIG.url);
+              assert(origin.includes('avonfqgechvrnqxmbufn.supabase.co'),route+' wrong Auth service');
+              await page.waitForFunction(()=>!!(window.supabase&&window.supabase.createClient),{timeout:15000});
+              await page.locator('input[name="email"]').first().waitFor({timeout:20000});
+              assert.equal(await page.locator('input[name="email"]').first().isVisible(),true);
+              assert(!await page.locator('text=Service de connexion indisponible').isVisible(),route+' Auth SDK failed');
+              await page.waitForFunction(()=>!!window.AthlysRPESemanticML?.extract,{timeout:15000});
+              const evidence=await page.evaluate(()=>{
+                const m=window.AthlysRPESemanticML;
+                const sample=m.extract("Fractionné 6 x 200 m, récupération 90 s");
+                const noLeak=m.extract("Séance effectuée, RPE ressenti 10");
+                return {version:m.version,modality:sample.modality,repetitions:sample.repetitions,
+                  workDistanceM:sample.workDistanceM,recoverySeconds:sample.recoverySeconds,
+                  noLeak:noLeak.explicitlyPlannedRpe===null,
+                  baseline:!!window.AthlysLocalIntelligence?.projectRPE};
+              });
+              assert.equal(evidence.version,'athlys-rpe-semantic-ml-1.0.0');
+              assert.equal(evidence.modality,'interval');
+              assert.equal(evidence.repetitions,6);
+              assert.equal(evidence.workDistanceM,1200);
+              assert.equal(evidence.recoverySeconds,90);
+              assert.equal(evidence.noLeak,true);
+              assert(evidence.baseline);
+              const headers=resp.headers();
+              assert((headers['x-robots-tag']||'').includes('noindex'),'staging indexable');
+              console.log('PASS_SEMANTIC_V11 '+route+' parser on real Chromium + baseline RPE, no-label leakage.');
+              await page.screenshot({path:'qa/'+(mobile?'mobile':'desktop')+'-login.png',fullPage:true});
+              console.log('PASS_BROWSER '+route+' login form visible, SDK available, staging project only.');
+              results.push({route,result:'PASS',auth:'not performed',errors:exceptions.slice(0,5)});
+              await context.close();
+            }
+            fs.writeFileSync('qa/browser-status.json',JSON.stringify({environment:'staging',source:'remote Vercel',results},null,2)+'\n');
+            await browser.close();
+          })().catch(e=>{console.error('IRL_BROWSER_NO_GO: '+e.message);process.exitCode=1});
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: athlys-v11-rpe-semantic-browser-evidence
+          retention-days: 14
+          if-no-files-found: warn
+          path: qa/
+
+# V11 staging dpl_HPWYeBS1hmRk2zdvaxH5FiPkCzJw.
