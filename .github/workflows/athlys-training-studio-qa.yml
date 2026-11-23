@@ -35,7 +35,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm ci --no-audit --no-fund >"$RUNNER_TEMP/athlys-training-install.log" 2>&1 || {
+          npm install --no-audit --no-fund >"$RUNNER_TEMP/athlys-training-install.log" 2>&1 || {
             tail -n 35 "$RUNNER_TEMP/athlys-training-install.log"; exit 1;
           }
       - name: Test training, strength, and core intelligence
