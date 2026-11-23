@@ -1,0 +1,57 @@
+name: Athlys v9 signing certificate compatibility (read-only)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/athlys-v9-certificate-qa.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certificate-compatibility:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Compare candidate signing certificate to Athlys v9 without publishing keys
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.ATHLYS_SIGNING_KEYSTORE_B64 }}
+          KEY_ALIAS: ${{ secrets.ATHLYS_SIGNING_ALIAS }}
+          STORE_PASSWORD: ${{ secrets.ATHLYS_SIGNING_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ATHLYS_SIGNING_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for k in KEYSTORE_B64 KEY_ALIAS STORE_PASSWORD KEY_PASSWORD; do
+            if [ -z "${!k}" ]; then
+              echo "BLOCKED: Android release signing credentials not fully configured in this runner."
+              exit 0
+            fi
+          done
+          tempdir="$(mktemp -d)"
+          trap 'rm -rf "$tempdir"' EXIT
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$tempdir/release.jks"
+          chmod 600 "$tempdir/release.jks"
+          test -s "$tempdir/release.jks"
+          # Only a public signing certificate digest is compared. Never export a private key.
+          keytool -exportcert -alias "$KEY_ALIAS" -keystore "$tempdir/release.jks" -storepass "$STORE_PASSWORD" 2>/dev/null > "$tempdir/signing-cert.der"
+          keystore_digest="$(openssl dgst -sha256 -binary "$tempdir/signing-cert.der" | od -An -tx1 | tr -d ' \n' | tr '[:lower:]' '[:upper:]')"
+          test "${#keystore_digest}" -eq 64 || { echo "::error::INVALID_KEYSTORE_CERTIFICATE"; exit 1; }
+          curl -fL --retry 1 --max-time 50 \
+            'https://athlys-workspace-l2dul12ns-adiceamlilian-6530.vercel.app/downloads/Athlys-Copilote-Compte-recette-v9.apk' \
+            -o "$tempdir/v9.apk" >/dev/null 2>&1 || { echo "::error::V9_APK_UNREACHABLE"; exit 1; }
+          test -s "$tempdir/v9.apk" || { echo "::error::EMPTY_V9_APK"; exit 1; }
+          sdk="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          version="$(ls "$sdk/build-tools" | sort -V | tail -1)"
+          apksigner="$sdk/build-tools/$version/apksigner"
+          test -x "$apksigner" || { echo "::error::ANDROID_APKSIGNER_UNAVAILABLE"; exit 1; }
+          "$apksigner" verify --print-certs "$tempdir/v9.apk" > "$tempdir/apkcert.txt"
+          apk_digest="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$tempdir/apkcert.txt" | head -1 | tr -d ': \r\n' | tr '[:lower:]' '[:upper:]')"
+          test "${#apk_digest}" -eq 64 || { echo "::error::UNREADABLE_V9_CERTIFICATE"; exit 1; }
+          if [ "$apk_digest" = "$keystore_digest" ]; then
+            echo "PASS: signing certificate matches Athlys v9; a signed in-place update is technically possible if package ID and versionCode match."
+          else
+            echo "BLOCKED: signing certificate differs from Athlys v9; Android cannot update this install in place with these credentials."
+          fi
