@@ -89,7 +89,7 @@ jobs:
               console.log('PASS_XLSX_CHROMIUM '+device.name+' dates, headers, 2 rows, explicit completion and opt-in unchecked');
               const csv=['Date;Séance;Discipline;Durée min;RPE prévu;RPE ressenti;Réalisé'];
               for(let i=1;i<=65;i++)csv.push('2026-11-23;Sprint '+i+';Sprint;60;6;7;oui');
-              await input.setInputFiles({name:'training-demo.csv',mimeType:'text/csv',buffer:Buffer.from(csv.join('\\n'),'utf8')});
+              await input.setInputFiles({name:'training-demo.csv',mimeType:'text/csv',buffer:Buffer.from(csv.join('\n'),'utf8')});
               await page.waitForFunction(()=>!!document.querySelector('[data-excel-page="next"]'),{timeout:10000});
               assert.equal(await page.locator('.excel-table tbody tr').count(),30);
               assert.equal(await page.locator('[data-excel-edit="title"]').first().inputValue(),'Sprint 1');
