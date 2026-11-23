@@ -47,7 +47,9 @@ jobs:
           unzip -Z1 candidate/Athlys-V10-FLM-Quantum.apk | grep -qx 'assets/public/athlys-light-lm-runtime/wllama.wasm'
           unzip -Z1 candidate/Athlys-V10-FLM-Quantum.apk | grep -qx 'assets/public/athlys-light-lm-runtime/model.json'
           unzip -Z1 candidate/Athlys-V10-FLM-Quantum.apk | grep -qx 'assets/public/athlys-light-lm-runtime/wllama-LICENSE'
-          ! unzip -Z1 candidate/Athlys-V10-FLM-Quantum.apk | grep -qi '\.gguf
+          if unzip -Z1 candidate/Athlys-V10-FLM-Quantum.apk | grep -iq gguf; then
+            echo "::error::MODEL_WEIGHTS_EMBEDDED"; exit 1
+          fi
           mkdir -p qa
           printf 'source-artifact=45272626037\nsha256=%s\n' "$actual" > qa/manifest.txt
           echo 'PASS: isolated V10 APK verified before emulator'
