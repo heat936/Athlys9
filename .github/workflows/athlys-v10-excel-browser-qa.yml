@@ -1,0 +1,102 @@
+name: Athlys V10 Excel Intelligence — real Chromium XLSX UX QA
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-v10-excel-browser-qa.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  spreadsheet:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 6f2e48f5675fbdde709b34a4b02c4792d4bf5fe0
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install clean Playwright for browser-only spreadsheet QA
+        run: |
+          set -euo pipefail
+          npm install --prefix /tmp/athlys-pw --no-save --ignore-scripts playwright@1.57.0 >/tmp/excel-pw-install.log 2>&1
+          /tmp/athlys-pw/node_modules/.bin/playwright install --with-deps chromium >/tmp/excel-pw-chromium.log 2>&1
+      - name: Generate synthetic Office XLSX with standard ZIP + shared cell types
+        run: |
+          set -euo pipefail
+          mkdir -p qa
+          python3 - <<'PY'
+          from zipfile import ZipFile,ZIP_DEFLATED
+          from pathlib import Path
+          P=Path('qa/athlys-2026-demo.xlsx')
+          sheet='''<?xml version="1.0" encoding="UTF-8"?>
+          <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>
+          <row r="1"><c r="A1" t="inlineStr"><is><t>Date</t></is></c><c r="B1" t="inlineStr"><is><t>Séance</t></is></c><c r="C1" t="inlineStr"><is><t>Durée min</t></is></c><c r="D1" t="inlineStr"><is><t>RPE</t></is></c><c r="E1" t="inlineStr"><is><t>Discipline</t></is></c></row>
+          <row r="2"><c r="A2"><v>46349</v></c><c r="B2" t="inlineStr"><is><t>6x200m Sprint</t></is></c><c r="C2"><v>60</v></c><c r="D2"><v>7</v></c><c r="E2" t="inlineStr"><is><t>Sprint</t></is></c></row>
+          <row r="3"><c r="A3"><v>46348</v></c><c r="B3" t="inlineStr"><is><t>Saut en longueur</t></is></c><c r="C3"><v>50</v></c><c r="D3"><v>6</v></c><c r="E3" t="inlineStr"><is><t>Sauts</t></is></c></row>
+          </sheetData></worksheet>'''
+          wb='''<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Journal" sheetId="1" r:id="rId1"/></sheets></workbook>'''
+          rels='''<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Target="worksheets/sheet1.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"/></Relationships>'''
+          contenttypes='''<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/></Types>'''
+          with ZipFile(P,"w",ZIP_DEFLATED,compresslevel=6) as z:
+             z.writestr('[Content_Types].xml',contenttypes)
+             z.writestr('xl/workbook.xml',wb)
+             z.writestr('xl/_rels/workbook.xml.rels',rels)
+             z.writestr('xl/worksheets/sheet1.xml',sheet)
+          print("PASS synthetic XLSX generated: "+str(P))
+          PY
+      - name: Read XLSX in genuine Chromium, validate all stages of browser preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          NODE_PATH=/tmp/athlys-pw/node_modules node <<'NODE'
+          const {chromium}=require('playwright');
+          const fs=require('node:fs');
+          const assert=require('node:assert/strict');
+          (async()=>{
+            const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+            for(const device of [{name:'desktop',width:1360,height:900},{name:'mobile',width:390,height:844}]){
+              const page=await browser.newPage({viewport:{width:device.width,height:device.height}});
+              page.on('pageerror',e=>{throw Error('BROWSER_JS_ERROR: '+e.message)});
+              await page.goto('about:blank');
+              for(const name of ['athlys-training-intelligence.js','athlys-xlsx-reader.js','athlys-excel-import.js'])
+                await page.addScriptTag({content:fs.readFileSync('web/'+name,'utf8')});
+              await page.evaluate(()=>{
+                document.body.innerHTML=window.AthlysTrainingImport.card({
+                  owner:'synthetic-user',coach:false,athletes:[],
+                  client:{},onSaved:()=>Promise.resolve()
+                });
+              });
+              const input=page.locator('[data-excel-file]');
+              assert(await input.isVisible(),'missing file selector');
+              await input.setInputFiles('qa/athlys-2026-demo.xlsx');
+              await page.waitForFunction(()=>document.querySelectorAll('.excel-table tbody tr').length===2,{timeout:15000});
+              assert.equal(await page.locator('.excel-table tbody tr').count(),2);
+              assert.equal(await page.locator('[data-excel-edit="date"]').first().inputValue(),'2026-11-23');
+              assert.equal(await page.locator('[data-excel-edit="minutes"]').first().inputValue(),'60');
+              assert.equal(await page.locator('[data-excel-edit="rpe"]').first().inputValue(),'7');
+              assert.equal(await page.locator('[data-excel-done]').first().isChecked(),false,
+                'planned RPE may not silently mean completed');
+              assert.equal(await page.locator('[data-excel-research]').isChecked(),false,
+                'research consent must not be preselected');
+              await page.locator('[data-excel-complete-all]').click();
+              assert.equal(await page.locator('[data-excel-done]').first().isChecked(),true);
+              await page.screenshot({path:'qa/'+device.name+'-excel-qa.png',fullPage:true});
+              console.log('PASS_XLSX_CHROMIUM '+device.name+' dates, headers, 2 rows, explicit completion and opt-in unchecked');
+              await page.close();
+            }
+            await browser.close();
+          })().catch(e=>{console.error('EXCEL_BROWSER_QA_FAILED '+e.stack);process.exitCode=1});
+          NODE
+      - name: Upload synthetic visual evidence with no users or private data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: athlys-v10-excel-browser-qa
+          retention-days: 14
+          if-no-files-found: warn
+          path: qa/
