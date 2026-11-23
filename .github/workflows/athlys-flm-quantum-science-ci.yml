@@ -1,0 +1,66 @@
+name: Athlys FLM and Quantum — R&D science gates
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-flm-quantum-science-ci.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  science:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    env:
+      EXPECTED_SOURCE: 72798ab28d2405ff2f73fbb5d8a4d9565e14b50b
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 72798ab28d2405ff2f73fbb5d8a4d9565e14b50b
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Pin and inspect source
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
+          node --check web/feather-language.js
+          node --check supabase/functions/athlys-quantum-analysis/quantum-engine.js
+          node --check tests/athlys-flm-scientific-boundary.test.cjs
+          node --check tests/athlys-quantum-science.test.cjs
+          grep -q 'allowLocalIntent === true' web/feather-language.js
+          grep -q 'athlys-quantum-portfolio-0.3.0' supabase/functions/athlys-quantum-analysis/quantum-engine.js
+          echo 'PASS: immutable source, no unreviewed action classifier and safe Quantum version'
+      - name: Install pinned local language runtime
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          node -e 'const a=require("@wllama/wllama/package.json");if(a.version!=="3.13.0")process.exit(1)'
+      - name: Scientific, FLM and Excel regression tests
+        run: |
+          set -euo pipefail
+          npm test
+          echo 'PASS: independent local RPE, FLM boundaries, Monte Carlo and Excel regression tests'
+      - name: Build original Web + opt-in model runtime and verify pinned license and checksums
+        run: |
+          set -euo pipefail
+          npm run build:web
+          for file in assistant.js wllama.wasm wllama-LICENSE model.json; do
+            test -s "web/athlys-light-lm-runtime/$file"
+          done
+          test "$(stat -c %s web/athlys-light-lm-runtime/wllama.wasm)" -gt 1000000
+          test ! -e 'web/athlys-light-lm-runtime/model.gguf'
+          node -e 'let m=require("./web/athlys-light-lm-runtime/model.json");if(m.runtime!=="3.13.0"||m.size!==219309792)process.exit(1)'
+          echo 'PASS: local language runtime packaged, GGUF weights NOT bundled'
+      - name: Publish bounded runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: athlys-flm-quantum-rd-evidence
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            web/athlys-light-lm-runtime/model.json
+            web/athlys-light-lm-runtime/wllama-LICENSE
