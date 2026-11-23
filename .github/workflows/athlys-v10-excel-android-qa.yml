@@ -240,11 +240,11 @@ jobs:
               if not p.exists(): continue
               source=p.read_text()
               source=source.replace('mavenCentral()',"""maven { url 'https://maven-central.storage-download.googleapis.com/maven2/' }
-                  mavenCentral()""")
+                  maven { url 'https://maven.aliyun.com/repository/central' }""")
               p.write_text(source)
           PY
           chmod +x android/gradlew
-          if ! (cd android && ./gradlew assembleDebug --no-daemon --refresh-dependencies) >"$RUNNER_TEMP/v10-android.log" 2>&1; then
+          if ! (cd android && ./gradlew assembleDebug --no-daemon --max-workers=2) >"$RUNNER_TEMP/v10-android.log" 2>&1; then
             tail -n 70 "$RUNNER_TEMP/v10-android.log" | sed -E 's/(token|password|secret|key)[=:][^[:space:]]+/\1=[redacted]/gi'
             echo "::error::V10_ANDROID_BUILD_FAILED"; exit 1
           fi
