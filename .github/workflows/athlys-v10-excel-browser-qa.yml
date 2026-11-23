@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: 6f2e48f5675fbdde709b34a4b02c4792d4bf5fe0
+          ref: 3087d9b9a8a4cef6a72748db0e46deea1fb28c8c
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -87,6 +87,22 @@ jobs:
               assert.equal(await page.locator('[data-excel-done]').first().isChecked(),true);
               await page.screenshot({path:'qa/'+device.name+'-excel-qa.png',fullPage:true});
               console.log('PASS_XLSX_CHROMIUM '+device.name+' dates, headers, 2 rows, explicit completion and opt-in unchecked');
+              const csv=['Date;Séance;Discipline;Durée min;RPE prévu;RPE ressenti;Réalisé'];
+              for(let i=1;i<=65;i++)csv.push('2026-11-23;Sprint '+i+';Sprint;60;6;7;oui');
+              await input.setInputFiles({name:'training-demo.csv',mimeType:'text/csv',buffer:Buffer.from(csv.join('\\n'),'utf8')});
+              await page.waitForFunction(()=>!!document.querySelector('[data-excel-page="next"]'),{timeout:10000});
+              assert.equal(await page.locator('.excel-table tbody tr').count(),30);
+              assert.equal(await page.locator('[data-excel-edit="title"]').first().inputValue(),'Sprint 1');
+              await page.locator('[data-excel-page="next"]').click();
+              assert.equal(await page.locator('[data-excel-edit="title"]').first().inputValue(),'Sprint 31');
+              await page.locator('[data-excel-edit="plannedRpe"]').first().fill('8');
+              await page.locator('[data-excel-page="next"]').click();
+              assert.equal(await page.locator('.excel-table tbody tr').count(),5);
+              assert.equal(await page.locator('[data-excel-edit="title"]').first().inputValue(),'Sprint 61');
+              await page.locator('[data-excel-page="previous"]').click();
+              assert.equal(await page.locator('[data-excel-edit="plannedRpe"]').first().inputValue(),'8');
+              console.log('PASS_PAGINATED_CSV '+device.name+' all 65 rows accessible and planned RPE edits persist across pages');
+              await page.screenshot({path:'qa/'+device.name+'-excel-pagination.png',fullPage:true});
               await page.close();
             }
             await browser.close();
