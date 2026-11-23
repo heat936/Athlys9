@@ -19,7 +19,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: athlys-v10-qa-android
-          run-id: 45240529452
+          run-id: 45243122013
           github-token: ${{ github.token }}
           path: package
       - name: Verify signed QA APK and attach clear release notes
@@ -48,7 +48,7 @@ jobs:
             gh release create athlys-v10-training-studio-qa \
               package/Athlys-V10-Training-Studio-QA.apk package/SHA256SUMS.txt \
               --title 'Athlys V10 Training Studio — APK de recette Android' \
-              --notes 'APK Android V10 de test, package com.athlys.v10preview. Animation Trajectoire originale intégrée hors ligne. Correctif du chargement et des délais de connexion. Signature debug différente de v9 ; installation parallèle. Ne pas considérer cette APK comme une mise à jour de production ni comme une validation complète des connexions Supabase réelles.' \
+              --notes 'APK Android V10 de test, package com.athlys.v10studioqa. Animation Trajectoire originale intégrée hors ligne. SDK Supabase intégré localement, connexion initialisée avec délai borné, démarrage vérifié. Signature debug différente de v9 ; installation parallèle. Ne pas considérer cette APK comme une mise à jour de production ni comme une validation complète des connexions Supabase réelles.' \
               --prerelease
           fi
           gh release view athlys-v10-training-studio-qa --json assets --jq '.assets[].name' | grep -qx Athlys-V10-Training-Studio-QA.apk
