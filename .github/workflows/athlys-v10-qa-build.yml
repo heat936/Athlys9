@@ -95,6 +95,13 @@ jobs:
           fs.writeFileSync(p,JSON.stringify(c,null,2)+'\n');
           NODE
           cp web/mobile.html web/index.html
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('web/index.html')
+          s=p.read_text()
+          s=s.replace('<head>','<head><style>html,body{background:#13213c;color:#F3F0EC;margin:0}</style>',1)
+          p.write_text(s)
+          PY
           if ! (test -f android/gradlew || npx cap add android) >"$RUNNER_TEMP/v10-cap.log" 2>&1; then
             echo "::error::V10_CAP_ADD_FAILED"; exit 1
           fi
@@ -135,6 +142,7 @@ jobs:
                 @Override public void onCreate(android.os.Bundle state) {
                   super.onCreate(state);
                   getBridge().getWebView().getSettings().setMediaPlaybackRequiresUserGesture(false);
+                  getBridge().getWebView().setBackgroundColor(android.graphics.Color.parseColor("#13213c"));
                 }
               }"""
               amended,n=re.subn(r'public class MainActivity extends BridgeActivity\s*\{\s*\}',replacement,original,count=1)
@@ -183,7 +191,9 @@ jobs:
               pattern=r'(<style\s+name="AppTheme.NoActionBarLaunch"[^>]*>)'
               if not re.search(pattern,original):
                   continue
-              add=('\n        <item name="android:windowSplashScreenBackground">#13213c</item>'
+              add=('\n        <item name="android:windowBackground">#13213c</item>'
+                   '\n        <item name="android:statusBarColor">#13213c</item>'
+                   '\n        <item name="android:windowSplashScreenBackground">#13213c</item>'
                    '\n        <item name="android:windowSplashScreenAnimatedIcon">@drawable/athlys_v10_splash_icon</item>'
                    '\n        <item name="android:windowSplashScreenIconBackgroundColor">#13213c</item>')
               updated,n=re.subn(pattern,lambda m:m.group(1)+add,original,count=1)
