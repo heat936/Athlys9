@@ -11,12 +11,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 18
     env:
-      EXPECTED_SOURCE: 72798ab28d2405ff2f73fbb5d8a4d9565e14b50b
+      EXPECTED_SOURCE: 659a665cc1b20eeb4581638f1bef5d309a5975c2
     steps:
       - uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: 72798ab28d2405ff2f73fbb5d8a4d9565e14b50b
+          ref: 659a665cc1b20eeb4581638f1bef5d309a5975c2
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
