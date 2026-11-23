@@ -12,12 +12,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 18
     env:
-      EXPECTED_SHA: 7dec0a328d6689f0f6fd8b1842402f41387d4841
+      EXPECTED_SHA: 64e895447141da2e8f12e51434bf9c591035c2bd
     steps:
       - uses: actions/checkout@v4
         with:
           repository: heat936/Athlys2
-          ref: 7dec0a328d6689f0f6fd8b1842402f41387d4841
+          ref: 64e895447141da2e8f12e51434bf9c591035c2bd
           token: ${{ secrets.ATHLYS_READ_TOKEN }}
           persist-credentials: false
       - uses: actions/setup-node@v4
