@@ -19,7 +19,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: athlys-v10-qa-android
-          run-id: 45243122013
+          run-id: 45246100319
           github-token: ${{ github.token }}
           path: package
       - name: Verify signed QA APK and attach clear release notes
