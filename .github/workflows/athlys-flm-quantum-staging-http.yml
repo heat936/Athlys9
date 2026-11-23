@@ -1,0 +1,66 @@
+name: Athlys FLM Quantum — staged Web runtime and protected Quantum HTTP gates
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-flm-quantum-staging-http.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    env:
+      BASE: https://athlys-v10-irl-staging.vercel.app
+      QUANTUM: https://avonfqgechvrnqxmbufn.supabase.co/functions/v1/athlys-quantum-analysis
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify V10 FLM runtime, pinned model contract, no GGUF and legacy journeys
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const assert=require('node:assert/strict');
+          async function fetchStaged(path){
+            const response=await fetch(process.env.BASE+path,{signal:AbortSignal.timeout(20000)});
+            assert.equal(response.status,200,path+" HTTP "+response.status);
+            return {response,body:await response.text()};
+          }
+          (async()=>{
+            const pages=['/app.html','/mobile.html','/app.js','/feather-language.js','/athlys-excel-import.js',
+              '/athlys-light-lm-runtime/assistant.js','/athlys-light-lm-runtime/model.json','/robots.txt'];
+            const content={};
+            for(const p of pages){
+              const {response,body}=await fetchStaged(p);content[p]=body;
+              assert(body.length>40,p+" too short");
+              console.log('PASS asset '+p+' length='+body.length);
+              if(p==='/app.html'){
+                assert((response.headers.get('x-robots-tag')||'').includes('noindex'),'staging noindex missing');
+              }
+            }
+            const runtime=await fetch(process.env.BASE+'/athlys-light-lm-runtime/wllama.wasm',{signal:AbortSignal.timeout(45000)});
+            assert.equal(runtime.status,200,'wasm inaccessible');
+            assert((Number(runtime.headers.get('content-length'))||Number((await runtime.arrayBuffer()).byteLength))>1000000);
+            const model=JSON.parse(content['/athlys-light-lm-runtime/model.json']);
+            assert.equal(model.runtime,'3.13.0');assert.equal(model.size,219309792);
+            assert(/^[a-f0-9]{64}$/.test(model.sha256));
+            assert(content['/feather-language.js'].includes('/athlys-light-lm-runtime/assistant.js'));
+            assert(content['/athlys-excel-import.js'].includes('data-excel-page="next"'));
+            assert(content['/app.js'].includes('AthlysFeatherLanguage'));
+            const noModel=await fetch(process.env.BASE+'/athlys-light-lm-runtime/model.gguf',{signal:AbortSignal.timeout(15000)});
+            assert.notEqual(noModel.status,200,'model weights unexpectedly exposed!');
+            const cfg=await fetchStaged('/app-config.js');
+            assert(cfg.body.includes('avonfqgechvrnqxmbufn.supabase.co'));
+            assert(!cfg.body.includes('ixccwxonchzzjdjeajzw'));
+            console.log('PASS staged FLM: runtime and manifest verified, no model weights shipped, Excel and config preserved.');
+            const denied=await fetch(process.env.QUANTUM,{
+              method:'POST',headers:{'content-type':'application/json'},
+              body:JSON.stringify({action:'simulate',athleteId:'00000000-0000-4000-8000-000000000001',
+                durationMinutes:60,rpe:7,asOf:'2026-11-23'}),signal:AbortSignal.timeout(15000)
+            });
+            assert([401,403].includes(denied.status),'anonymous call must fail: HTTP '+denied.status);
+            console.log('PASS Quantum staging Edge JWT gate: anonymous caller refused HTTP '+denied.status);
+          })().catch(e=>{console.error('NO_GO_'+e.stack);process.exitCode=1});
+          NODE
