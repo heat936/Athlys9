@@ -183,11 +183,11 @@ jobs:
               pattern=r'(<style\s+name="AppTheme.NoActionBarLaunch"[^>]*>)'
               if not re.search(pattern,original):
                   continue
-              add=('\\n        <item name="android:windowSplashScreenBackground">#13213c</item>'
-                   '\\n        <item name="android:windowSplashScreenAnimatedIcon">@drawable/athlys_v10_splash_icon</item>'
-                   '\\n        <item name="android:windowSplashScreenIconBackgroundColor">#13213c</item>')
+              add=('\n        <item name="android:windowSplashScreenBackground">#13213c</item>'
+                   '\n        <item name="android:windowSplashScreenAnimatedIcon">@drawable/athlys_v10_splash_icon</item>'
+                   '\n        <item name="android:windowSplashScreenIconBackgroundColor">#13213c</item>')
               updated,n=re.subn(pattern,lambda m:m.group(1)+add,original,count=1)
-              if n: file.write_text(updated.replace('\\n','\\n'))
+              if n: file.write_text(updated)
               styles+=n
           if replaced==0 or styles==0:
               raise SystemExit('Athlys launcher icon/theme assets were not applied')
