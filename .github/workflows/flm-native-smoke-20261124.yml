@@ -1,0 +1,83 @@
+name: Public native language-model smoke
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/flm-native-smoke-20261124.yml'
+permissions: {}
+jobs:
+  synthetic-native-test:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'research/flm-native-smoke-20261124'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      HF_HUB_DISABLE_IMPLICIT_TOKEN: '1'
+      OMP_NUM_THREADS: '2'
+      TOKENIZERS_PARALLELISM: 'false'
+    steps:
+      - name: Install CPU dependencies
+        run: |
+          python -m venv /tmp/flm-smoke
+          /tmp/flm-smoke/bin/pip install --index-url https://download.pytorch.org/whl/cpu 'torch==2.10.0'
+          /tmp/flm-smoke/bin/pip install 'transformers==5.1.0' 'peft==0.18.1' safetensors
+      - name: Execute actual inference and one synthetic LoRA update
+        run: |
+          /tmp/flm-smoke/bin/python - <<'PY'
+          import json, time, torch, transformers, peft
+          from transformers import AutoTokenizer, AutoModelForCausalLM
+          from peft import LoraConfig, get_peft_model
+          from huggingface_hub import model_info
+          torch.manual_seed(42)
+          torch.set_num_threads(2)
+          model_id="LiquidAI/LFM2.5-350M"
+          revision=model_info(model_id,token=False).sha
+          print("CHECKPOINT",revision, "VERSIONS",torch.__version__,transformers.__version__,peft.__version__,flush=True)
+          tok=AutoTokenizer.from_pretrained(model_id,revision=revision,trust_remote_code=False,token=False)
+          model=AutoModelForCausalLM.from_pretrained(model_id,revision=revision,trust_remote_code=False,token=False,dtype=torch.float32)
+          assert model.config.model_type=="lfm2"
+          system="Classify each exact sentence as required or conditional or negated or reference. Return JSON only with keys evidence and state, in a list under clauses."
+          fixtures=[
+              ("Run four 200 metre repetitions.","required"),
+              ("If the track is wet, run indoors.","conditional"),
+              ("Ne fais pas de sprint maximal.","negated"),
+              ("Idem séance 2.","reference")]
+          model.eval()
+          exact=0
+          for source,gold in fixtures:
+              messages=[{"role":"system","content":system},{"role":"user","content":source}]
+              ids=tok.apply_chat_template(messages,tokenize=True,add_generation_prompt=True,return_dict=True,return_tensors="pt")
+              start=time.monotonic()
+              with torch.inference_mode():
+                  pred=model.generate(**ids,max_new_tokens=100,do_sample=False)
+              answer=tok.decode(pred[0,ids["input_ids"].shape[-1]:],skip_special_tokens=True)
+              try:
+                  clauses=json.loads(answer)["clauses"]
+                  ok=clauses==[{"evidence":source,"state":gold}]
+              except (ValueError,KeyError,TypeError):ok=False
+              exact+=int(ok)
+              print("INFERENCE",json.dumps({"fixture":source,"correct":ok,"seconds":round(time.monotonic()-start,3),"answer":answer},ensure_ascii=False),flush=True)
+          print("SYNTHETIC_BASELINE",exact,len(fixtures),flush=True)
+          # A different fictional sentence is used for one supervised update.
+          messages=[{"role":"system","content":system},{"role":"user","content":"Jog for ten minutes."},{"role":"assistant","content":json.dumps({"clauses":[{"evidence":"Jog for ten minutes.","state":"required"}]})}]
+          r=tok.apply_chat_template(messages,tokenize=True,return_dict=True,return_assistant_tokens_mask=True,add_generation_prompt=False)
+          ids=r["input_ids"]; mask=r["assistant_masks"]
+          assert len(ids)==len(mask) and any(mask) and not all(mask)
+          model.config.use_cache=False
+          model=get_peft_model(model,LoraConfig(r=8,lora_alpha=16,lora_dropout=0.0,target_modules="all-linear",task_type="CAUSAL_LM"))
+          model.train()
+          params=[p for p in model.parameters() if p.requires_grad]
+          assert params
+          opt=torch.optim.AdamW(params,lr=5e-5)
+          x=torch.tensor([ids]);y=torch.tensor([[t if m else -100 for t,m in zip(ids,mask)]])
+          opt.zero_grad()
+          loss=model(input_ids=x,labels=y).loss
+          assert torch.isfinite(loss)
+          loss.backward()
+          grads=[(p,p.detach().clone()) for p in params if p.grad is not None and torch.count_nonzero(p.grad).item()>0]
+          assert grads
+          opt.step()
+          changed=any(not torch.equal(p.detach(),before) for p,before in grads)
+          assert changed
+          print("LORA_SMOKE",json.dumps({"loss":float(loss.detach()),"trainable_parameters":sum(p.numel() for p in params),"weights_changed":changed,"steps":1,"release":False}),flush=True)
+          PY
