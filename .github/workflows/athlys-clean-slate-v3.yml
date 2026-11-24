@@ -9,6 +9,7 @@ on:
       - '.github/workflows/athlys-clean-slate-v3.yml'
 jobs:
   build:
+    if: github.event_name != 'pull_request' || github.head_ref != 'research/flm-native-smoke-20261124'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
