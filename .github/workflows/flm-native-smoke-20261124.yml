@@ -69,7 +69,25 @@ jobs:
           assert transformers.__version__=="5.1.0"
           tokenizer=AutoTokenizer.from_pretrained("/tmp/public-native",local_files_only=True,trust_remote_code=False)
           print("TOKENIZER_PREFLIGHT",type(tokenizer).__name__,len(tokenizer),flush=True)
-          assert len(tokenizer)==65536
+          # The model embedding table is padded to 65536; tokenizer need not fill it.
+          import json
+          from safetensors import safe_open
+          cfg=json.load(open("/tmp/public-native/config.json"))
+          n=cfg["vocab_size"]
+          vocab=tokenizer.get_vocab()
+          ids=list(vocab.values())
+          assert len(vocab)==len(tokenizer)==64402
+          assert all(isinstance(i,int) and 0<=i<n for i in ids)
+          assert len(set(ids))==len(ids)
+          with safe_open("/tmp/public-native/model.safetensors",framework="pt",device="cpu") as f:
+              assert f.get_slice("model.embed_tokens.weight").get_shape()==[n,1024]
+          for field in ("bos_token_id","eos_token_id","pad_token_id"):
+              assert getattr(tokenizer,field)==cfg[field] and cfg[field] in ids
+          for source in ("Jog for ten minutes.","Échauffement : 5 × 200 m."):
+              encoded=tokenizer.encode(source,add_special_tokens=False)
+              assert encoded and all(i in ids for i in encoded)
+              assert tokenizer.decode(encoded,skip_special_tokens=False)==source
+          print("TOKENIZER_ID_BOUNDS",json.dumps({"entries":len(ids),"embedding_rows":n,"min_id":min(ids),"max_id":max(ids),"unassigned_rows":n-len(ids)}),flush=True)
           PY
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF
           cmake --build build --target llama-quantize llama-cli -j 2
