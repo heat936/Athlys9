@@ -90,7 +90,7 @@ jobs:
           print("TOKENIZER_ID_BOUNDS",json.dumps({"entries":len(ids),"embedding_rows":n,"min_id":min(ids),"max_id":max(ids),"unassigned_rows":n-len(ids)}),flush=True)
           PY
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF
-          cmake --build build --target llama-quantize llama-cli -j 2
+          cmake --build build --target llama-quantize llama-completion -j 2
       - name: Convert unmodified public base and quantize
         run: |
           set -eu
@@ -108,5 +108,14 @@ jobs:
               result[name]={"sha256":digest,"size":p.stat().st_size}
           print("PUBLIC_BASE_GGUF",json.dumps(result),flush=True)
           PY
-          build/bin/llama-cli -m /tmp/base-q4_0.gguf -p 'Classify this fictional prescription: Jog for ten minutes.' -n 16 -t 2 --temp 0 --no-conversation </dev/null
+          # Noninteractive completion, not the chat CLI. Validate supported flags first.
+          build/bin/llama-completion --help > /tmp/completion-help.txt 2>&1
+          grep -F -- '-no-cnv' /tmp/completion-help.txt
+          for model in /tmp/base-f16.gguf /tmp/base-q4_0.gguf; do
+            echo "NATIVE_COMPLETION_MODEL $model"
+            timeout 90 build/bin/llama-completion -m "$model" -c 512 -p 'Classify this fictional prescription: Jog for ten minutes.' -n 16 -t 2 --temp 0 -no-cnv </dev/null > /tmp/completion-output.txt 2>/tmp/completion-log.txt
+            test -s /tmp/completion-output.txt
+            cat /tmp/completion-output.txt
+            tail -n 30 /tmp/completion-log.txt
+          done
           echo 'PUBLIC_BASE_CONVERSION_PASS: unmodified base only; no private adapter; no uploaded model; no Android validation'
