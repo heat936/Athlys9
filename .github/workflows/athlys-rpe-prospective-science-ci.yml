@@ -1,0 +1,59 @@
+name: Athlys RPE Prospective Pilot — private source scientific QA
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/athlys-rpe-prospective-science-ci.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pre-session-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      SOURCE_SHA: e935b69d0b3620b319d5c6a3c0671eddbf647481
+    steps:
+      - name: Checkout exact private source with read-only token
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: e935b69d0b3620b319d5c6a3c0671eddbf647481
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify source hash and consent/temporal isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          grep -q 'future_or_invalid_feature_time' web/athlys-rpe-two-stage.js
+          grep -q 'missing_specific_research_consent' ml/athlys_intelligence/rpe_prospective_capture.cjs
+          grep -q 'group_95pct_established=false' ml/athlys_intelligence/rpe_prospective_capture.cjs
+          grep -q 'timingSafeEqual' ml/athlys_intelligence/rpe_prospective_capture.cjs
+          node --check web/athlys-rpe-feature-bridge.js
+          node --check ml/athlys_intelligence/rpe_prospective_capture.cjs
+          node --check tests/athlys-rpe-prospective.test.cjs
+      - name: Execute prospective research safety and leakage tests
+        run: node --test tests/athlys-rpe-prospective.test.cjs
+      - name: Run existing ML, FLM and full tests and compile Web
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test tests/athlys-rpe-two-stage.test.cjs tests/athlys-rpe-semantic-v11.test.cjs
+          npm install --no-audit --no-fund
+          npm test
+          npm run build:web
+      - name: Assert models remain experiment only
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('fs');
+          const data=JSON.parse(fs.readFileSync('ml/research/rpe-soccermon-prior-only-20261124.json','utf8'));
+          if(data.artifact.stage!=='research_only'||data.artifact.trained_sports.join(',')!=='soccer')
+            throw Error('Production or sport scope regression');
+          console.log('Soccer-only training artifact explicitly blocked from athletics production');
+          NODE
+          echo 'No private code, predictions, secrets or athlete health data uploaded'
