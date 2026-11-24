@@ -149,5 +149,79 @@ jobs:
               print("EPOCH",json.dumps({"epoch":epoch+1,"mean_loss":sum(losses)/len(losses),"steps":len(losses)}),flush=True)
           after=evaluate(net,"after_original_dev",dev)
           after_challenge=evaluate(net,"after_new_challenge",challenge)
-          print("FINAL",json.dumps({"before":before,"after":after,"before_challenge":before_challenge,"after_challenge":after_challenge,"steps":2*len(train),"trainable_parameters":sum(p.numel() for p in params),"production":False,"weights_retained":False,"independent_validation":False}),flush=True)
+          # Reproduce the contrastive candidate, retain only a sealed research checkpoint.
+          import pathlib, hashlib, shutil, gc
+          from peft import PeftModel
+          from huggingface_hub import hf_hub_download
+          root=pathlib.Path("/tmp/flm-checkpoint")
+          root.mkdir(mode=0o700)
+          adapter=root/"adapter"
+          net.eval()
+          sample=tok.apply_chat_template(messages(challenge[0]),tokenize=True,add_generation_prompt=True,return_dict=True,return_tensors="pt")
+          with torch.inference_mode(): expected=net(**sample).logits[:,-1,:].detach().clone()
+          nparams=sum(p.numel() for p in params)
+          net.save_pretrained(adapter,safe_serialization=True)
+          assert (adapter/"adapter_model.safetensors").is_file()
+          del params,opt,net,model
+          gc.collect()
+          base=AutoModelForCausalLM.from_pretrained(model_id,revision=revision,trust_remote_code=False,token=False,dtype=torch.float32,local_files_only=True)
+          restored=PeftModel.from_pretrained(base,adapter,is_trainable=False,local_files_only=True)
+          restored.eval()
+          with torch.inference_mode(): actual=restored(**sample).logits[:,-1,:]
+          torch.testing.assert_close(actual,expected,rtol=1e-5,atol=1e-4)
+          shutil.copyfile(hf_hub_download(model_id,"LICENSE",revision=revision,token=False),root/"LICENSE")
+          metrics={"before":before,"after":after,"before_challenge":before_challenge,"after_challenge":after_challenge}
+          digest=lambda x:hashlib.sha256(json.dumps(x,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
+          checks={str(p.relative_to(root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob("*") if p.is_file()}
+          manifest={"stage":"research_only","base_model":model_id,"base_revision":revision,"torch":torch.__version__,"transformers":transformers.__version__,"peft":peft.__version__,"seed":42,"epochs":2,"steps":2*len(train),"trainable_parameters":nparams,"train_sha256":digest(train),"dev_sha256":digest(dev),"challenge_sha256":digest(challenge),"prompt_sha256":digest(system),"reload_logits_verified":True,"files_sha256":checks,"metrics":metrics,"independent_validation":False,"production":False}
+          (root/"manifest.json").write_text(json.dumps(manifest,indent=2),encoding="utf8")
+          print("CHECKPOINT_RELOAD",json.dumps({"verified":True,"adapter_sha256":checks["adapter/adapter_model.safetensors"],"adapter_bytes":(adapter/"adapter_model.safetensors").stat().st_size}),flush=True)
+          print("FINAL",json.dumps({**metrics,"steps":2*len(train),"trainable_parameters":nparams,"production":False,"weights_saved_locally":True,"independent_validation":False}),flush=True)
           PY
+      - name: Encrypt checkpoint before export
+        run: |
+          set -eu
+          umask 077
+          trap 'rm -rf /tmp/flm-checkpoint /tmp/flm-checkpoint.tar.gz /tmp/flm-recipient.pem' EXIT
+          cat > /tmp/flm-recipient.pem <<'CERT'
+          -----BEGIN CERTIFICATE-----
+          MIIETTCCArWgAwIBAgIULvZx1xoWSjf9RLIpPXhkG+lz6AkwDQYJKoZIhvcNAQEL
+          BQAwNjE0MDIGA1UEAwwrQXRobHlzIEZMTSBleHBlcmltZW50YWwgY2hlY2twb2lu
+          dCByZWNvdmVyeTAeFw0yNjExMjQxMjMzMDRaFw0zNjExMjExMjMzMDRaMDYxNDAy
+          BgNVBAMMK0F0aGx5cyBGTE0gZXhwZXJpbWVudGFsIGNoZWNrcG9pbnQgcmVjb3Zl
+          cnkwggGiMA0GCSqGSIb3DQEBAQUAA4IBjwAwggGKAoIBgQDwDqZ0nIvyHquI8cKq
+          pijk3Xo03Jo2NkQvtmR0Gg9BFygj1Kg3PP1oVlM1yT0OlZ9gVXXMruJ06/NA/aQB
+          gyz8NDpcdznyfRtblQrHhQ/fs27NVefPfS8LE0uxedMQtSoaeiJOWL23S1vagPIf
+          fwA5ahPu7DGZTkkwdrMwaqGJD6x2s++nmQHaZjek2/UsX1SlyYyIwSSudDOOSw3G
+          v8GteCOotaIk2UbyH77nkKPY+Ojiy9xDlJXZZOfUq2UzR/LSSrxT/kVHw+6p7Td7
+          Tg7zP1fuyMqV8E0zdZ8MRLhX34NRQH8ykEWJ3vE2gv7+Npv8Jz0ArLiZu4rk1aeY
+          CDwPeGZl9rlGYuUmXURFNPC6J6FJU43EMUTpK+c98id1qTTk2VjHjBZe44d927k7
+          SV0lPY32J22BylvGSACyjAE1nkQq048PhJaSizExY7Lln/bFgT5K/0MD67NCJvoP
+          OT33uQs1ghLKZNvPOiTdw1NIyyCnPlEctqMM1sjj5+B7068CAwEAAaNTMFEwHQYD
+          VR0OBBYEFPzwEuYFWP9eW3K2nCPpxOZaUAYlMB8GA1UdIwQYMBaAFPzwEuYFWP9e
+          W3K2nCPpxOZaUAYlMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggGB
+          AMuU7niD5ke3jh2X9w4TRT265sQaYu8SuodiAxlXqaCC6gQcDd5m0DDXAJCw7vy1
+          4WfZvmxFETUe9AqYmw1Z+FJdc8mKE1OvCFhXqswpN3Z77D1pKkVlkuYVoGA5Q/wj
+          OwBFeOnHSUjFKvzYrLj1RIriq0yjdaXCX6Px4fEvS+4Tan3SSpGseP/5WqklMiNI
+          yenySv6dOLauGpzlWPMWLzV122xvPz62E/iFhf6TG0YD4VtFndCcKdddWcd9RtwR
+          kYJrElQmSgIbVULXl1VX3uhhbZXi1xDVd7EUZssRH8CDjeETNo7G3JsWlqqeTVys
+          SCxHVd60ecvaKNQoMjlDE30NrSwMxEnRSh3QdHcRNzUpByet10Fh9dIrjcQmjCUM
+          tqFBC5ceWwMsCAtsJ0d7FwAJBrloRq6RBnunV32fPrCgYQWqeppLCf1/ihZY3Ovg
+          OTcLbDkTZVqu5+Nt50D5AePUDZ6vPPk8KoasllhRIFq2JEhAhZdDsPQP7uQtnOhg
+          Zw==
+          -----END CERTIFICATE-----
+          CERT
+          openssl x509 -in /tmp/flm-recipient.pem -noout -fingerprint -sha256 | grep -Fi 'C1:ED:3F:38:1F:85:16:A8:E2:65:06:74:E9:AE:BF:79:9E:59:B7:99:23:83:27:F1:5E:E8:95:44:FB:8E:B0:26'
+          tar -C /tmp/flm-checkpoint -czf /tmp/flm-checkpoint.tar.gz .
+          mkdir -p /tmp/flm-sealed
+          openssl cms -encrypt -binary -aes-256-gcm -in /tmp/flm-checkpoint.tar.gz -outform DER -out /tmp/flm-sealed/flm-research-checkpoint.cms /tmp/flm-recipient.pem
+          test -s /tmp/flm-sealed/flm-research-checkpoint.cms
+          sha256sum /tmp/flm-sealed/flm-research-checkpoint.cms
+      - name: Upload only encrypted experimental adapter
+        uses: actions/upload-artifact@v4
+        with:
+          name: flm-research-checkpoint-encrypted
+          path: /tmp/flm-sealed/flm-research-checkpoint.cms
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
