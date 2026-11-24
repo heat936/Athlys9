@@ -6,7 +6,7 @@ on:
       - '.github/workflows/flm-native-smoke-20261124.yml'
 permissions: {}
 jobs:
-  synthetic-native-test:
+  public-base-conversion:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'research/flm-native-smoke-20261124'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -14,214 +14,69 @@ jobs:
       HF_HUB_DISABLE_TELEMETRY: '1'
       HF_HUB_DISABLE_IMPLICIT_TOKEN: '1'
       OMP_NUM_THREADS: '2'
-      TOKENIZERS_PARALLELISM: 'false'
     steps:
-      - name: Install verified CPU dependencies
-        run: |
-          python -m venv /tmp/flm-smoke
-          /tmp/flm-smoke/bin/pip install --index-url https://download.pytorch.org/whl/cpu 'torch==2.10.0'
-          /tmp/flm-smoke/bin/pip install 'transformers==5.1.0' 'peft==0.18.1' safetensors
-      - name: Compare native model before and after synthetic supervised LoRA
-        run: |
-          /tmp/flm-smoke/bin/python - <<'PY'
-          import json, random, time, torch, transformers, peft
-          from transformers import AutoTokenizer, AutoModelForCausalLM
-          from peft import LoraConfig, get_peft_model
-          torch.manual_seed(42); random.seed(42); torch.set_num_threads(2)
-          model_id="LiquidAI/LFM2.5-350M"
-          revision="9921cd4d82c0e3986887aa4b376f9446729ef8a3"
-          print("CHECKPOINT",revision,"VERSIONS",torch.__version__,transformers.__version__,peft.__version__,flush=True)
-          tok=AutoTokenizer.from_pretrained(model_id,revision=revision,trust_remote_code=False,token=False)
-          model=AutoModelForCausalLM.from_pretrained(model_id,revision=revision,trust_remote_code=False,token=False,dtype=torch.float32)
-          assert model.config.model_type=="lfm2"
-          system="Analyse une prescription sportive FR/EN. Retourne uniquement JSON: {\"clauses\":[{\"evidence\":\"citation exacte\",\"role\":\"work|warmup|cooldown|recovery|goal|constraint|reference|context|unknown\",\"state\":\"required|conditional|alternative|negated|context|unknown\",\"modality\":\"speed|interval|endurance|strength|power|recovery|technical|unknown\"}]}. Chaque proposition distincte doit être citée exactement, dans son ordre. Choisis une seule valeur par champ. N'invente rien."
-          # Public, entirely fictional newly authored sentence families. No private corpus.
-          families=[
-            ("Trottine {n} minutes avant le travail.","warmup","required","endurance"),
-            ("Commence par {n} minutes de mobilité.","warmup","required","recovery"),
-            ("Effectue {n} répétitions de 300 m.","work","required","interval"),
-            ("Travaille {n} départs en starting-blocks.","work","required","speed"),
-            ("Fais {n} séries de squat.","work","required","strength"),
-            ("Réalise {n} séries de lancers.","work","required","power"),
-            ("Récupère {n} minutes entre les séries.","recovery","required","recovery"),
-            ("Retour au calme pendant {n} minutes.","cooldown","required","recovery"),
-            ("Si la piste est sèche, ajoute {n} sauts.","work","conditional","power"),
-            ("Ne dépasse pas {n} répétitions rapides.","constraint","negated","speed"),
-            ("Choisis {n} minutes de vélo ou de footing.","work","alternative","endurance"),
-            ("Idem séance {n}.","reference","unknown","unknown"),
-            ("Begin with {n} minutes of easy jogging.","warmup","required","endurance"),
-            ("Run {n} repetitions of 400 metres.","work","required","interval"),
-            ("Complete {n} sets of deadlifts.","work","required","strength"),
-            ("Rest for {n} minutes between sets.","recovery","required","recovery"),
-            ("Finish with {n} minutes of gentle mobility.","cooldown","required","recovery"),
-            ("If the runway is open, perform {n} jumps.","work","conditional","power"),
-            ("Do not exceed {n} maximal starts.","constraint","negated","speed"),
-            ("Choose {n} minutes of cycling or jogging.","work","alternative","endurance"),
-            ("Same as session {n}.","reference","unknown","unknown"),
-            ("Practise {n} baton exchanges.","work","required","technical"),
-          ]
-          def clause(t,r,s,m):return {"evidence":t,"role":r,"state":s,"modality":m}
-          train=[[clause(t.format(n=n),r,s,m)] for t,r,s,m in families for n in [3,6,10]]
-          # Compose training examples only from training families.
-          train += [train[i]+train[i+18] for i in range(0,18,3)]
-          train += [[clause("Le but est de stabiliser les appuis.","goal","context","technical")],
-                    [clause("The competition is tomorrow.","context","context","unknown")]]
-          # Contrastive, separately authored paraphrases targeting observed development errors.
-          targeted=json.loads("[[\"Alterner les foulées courtes et longues à chaque passage.\",\"work\",\"required\",\"technical\"],[\"Alterne un passage de haies basses et un passage de haies hautes.\",\"work\",\"required\",\"technical\"],[\"Enchaîne successivement les ateliers de course et de saut.\",\"work\",\"required\",\"technical\"],[\"Choisis soit les haies, soit les éducatifs de course.\",\"work\",\"alternative\",\"technical\"],[\"Alternate high and low hurdle drills.\",\"work\",\"required\",\"technical\"],[\"Do the two stations in turn.\",\"work\",\"required\",\"technical\"],[\"Choose either hurdle drills or sprint drills.\",\"work\",\"alternative\",\"technical\"],[\"Switch between short and long steps during the drill.\",\"work\",\"required\",\"technical\"],[\"Après chaque sprint, reviens en marchant.\",\"recovery\",\"required\",\"recovery\"],[\"Le retour au point de départ se fait en trottinant.\",\"recovery\",\"required\",\"recovery\"],[\"Prends le temps de souffler entre deux lancers.\",\"recovery\",\"required\",\"recovery\"],[\"Avant les répétitions, marche cinq minutes pour t'échauffer.\",\"warmup\",\"required\",\"recovery\"],[\"Between repetitions, walk slowly back to the line.\",\"recovery\",\"required\",\"recovery\"],[\"Take a breather after each set.\",\"recovery\",\"required\",\"recovery\"],[\"Walk to recover between jumps.\",\"recovery\",\"required\",\"recovery\"],[\"Walk gently before the first set to warm up.\",\"warmup\",\"required\",\"recovery\"],[\"Reproduis le programme de la semaine dernière.\",\"reference\",\"unknown\",\"unknown\"],[\"Repars du travail prévu hier.\",\"reference\",\"unknown\",\"unknown\"],[\"Reprends le bloc précédent sans autre précision.\",\"reference\",\"unknown\",\"unknown\"],[\"Même contenu que jeudi dernier.\",\"reference\",\"unknown\",\"unknown\"],[\"Repeat yesterday's workout.\",\"reference\",\"unknown\",\"unknown\"],[\"Follow the previous week's plan.\",\"reference\",\"unknown\",\"unknown\"],[\"Use last month's routine.\",\"reference\",\"unknown\",\"unknown\"],[\"Match the work prescribed on Tuesday.\",\"reference\",\"unknown\",\"unknown\"],[\"Les lancers à puissance maximale sont interdits.\",\"constraint\",\"negated\",\"power\"],[\"Aucun saut à intensité maximale.\",\"constraint\",\"negated\",\"power\"],[\"Pas de départs à vitesse maximale.\",\"constraint\",\"negated\",\"speed\"],[\"La musculation lourde est exclue.\",\"constraint\",\"negated\",\"strength\"],[\"Maximum effort throws are prohibited.\",\"constraint\",\"negated\",\"power\"],[\"No maximal jumping attempts.\",\"constraint\",\"negated\",\"power\"],[\"All-out sprinting is prohibited.\",\"constraint\",\"negated\",\"speed\"],[\"Heavy lifting is not permitted.\",\"constraint\",\"negated\",\"strength\"],[\"La priorité est la régularité des appuis.\",\"goal\",\"context\",\"technical\"],[\"L'objectif est d'améliorer la coordination.\",\"goal\",\"context\",\"technical\"],[\"La séance vise à développer l'endurance.\",\"goal\",\"context\",\"endurance\"],[\"La course officielle est vendredi.\",\"context\",\"context\",\"unknown\"],[\"Aim for better take-off coordination.\",\"goal\",\"context\",\"technical\"],[\"The objective is improved aerobic endurance.\",\"goal\",\"context\",\"endurance\"],[\"The meet is scheduled for next week.\",\"context\",\"context\",\"unknown\"],[\"There is a club event on Tuesday.\",\"context\",\"context\",\"unknown\"],[\"Si le matériel manque, travaille les appuis.\",\"work\",\"conditional\",\"technical\"],[\"En cas de terrain fermé, travaille la mobilité.\",\"work\",\"conditional\",\"recovery\"],[\"Si la météo le permet, effectue des départs.\",\"work\",\"conditional\",\"speed\"],[\"Pourvu que le matériel soit disponible, fais les exercices de franchissement.\",\"work\",\"conditional\",\"technical\"],[\"Provided the hurdles are available, practise clearance.\",\"work\",\"conditional\",\"technical\"],[\"If equipment is unavailable, work on coordination.\",\"work\",\"conditional\",\"technical\"],[\"Should it rain, do an easy indoor session.\",\"work\",\"conditional\",\"endurance\"],[\"Unless the track is closed, practise starts.\",\"work\",\"conditional\",\"speed\"]]")
-          train += [[clause(*r)] for r in targeted]
-          dev=[
-            [clause("Prépare-toi par un quart d'heure de course facile.","warmup","required","endurance")],
-            [clause("Alterne les passages de haies à rythme régulier.","work","required","technical")],
-            [clause("Marche jusqu'au point de départ après chaque effort.","recovery","required","recovery")],
-            [clause("À défaut de sautoir, poursuis les éducatifs.","work","conditional","technical")],
-            [clause("Les essais maximaux sont à proscrire.","constraint","negated","power")],
-            [clause("Reprends le microcycle précédent.","reference","unknown","unknown")],
-            [clause("Ease into the session with relaxed running.","warmup","required","endurance")],
-            [clause("Walk back to the starting line after each effort.","recovery","required","recovery")],
-            [clause("Should the field close, practise footwork indoors.","work","conditional","technical")],
-            [clause("Maximum-speed work is off limits.","constraint","negated","speed")],
-            [clause("Finish by walking slowly.","cooldown","required","recovery"),clause("The race takes place on Sunday.","context","context","unknown")],
-            [clause("Le but est de fluidifier le passage des haies.","goal","context","technical"),clause("Les accélérations maximales sont interdites.","constraint","negated","speed")],
-          ]
-          challenge_raw=json.loads("[[[\"Effectue successivement des éducatifs de franchissement et de réception.\",\"work\",\"required\",\"technical\"]],[[\"Entre deux passages, retourne au plot à allure très lente.\",\"recovery\",\"required\",\"recovery\"]],[[\"Calque le contenu sur celui de l'avant-dernière semaine.\",\"reference\",\"unknown\",\"unknown\"]],[[\"Tout essai de saut à pleine puissance est exclu.\",\"constraint\",\"negated\",\"power\"]],[[\"La finalité du travail est la stabilité du bassin.\",\"goal\",\"context\",\"technical\"]],[[\"La rencontre interclubs aura lieu le mois prochain.\",\"context\",\"context\",\"unknown\"]],[[\"Work through both drill stations one after the other.\",\"work\",\"required\",\"technical\"]],[[\"After each repetition, stroll to the next starting marker.\",\"recovery\",\"required\",\"recovery\"]],[[\"Use the routine from the preceding training block.\",\"reference\",\"unknown\",\"unknown\"]],[[\"Full-power jumping attempts are not allowed.\",\"constraint\",\"negated\",\"power\"]],[[\"In the event of a closed runway, rehearse take-off mechanics.\",\"work\",\"conditional\",\"technical\"],[\"Finish with an easy walk.\",\"cooldown\",\"required\",\"recovery\"]],[[\"The purpose is better balance on landing.\",\"goal\",\"context\",\"technical\"],[\"The next meet is on Monday.\",\"context\",\"context\",\"unknown\"]]]")
-          challenge=[[clause(*r) for r in cs] for cs in challenge_raw]
-          def source(cs):return " ".join(c["evidence"] for c in cs)
-          assert not set(map(source,train)) & (set(map(source,dev))|set(map(source,challenge)))
-          assert not set(map(source,dev)) & set(map(source,challenge))
-          print("CORPUS",len(train),len(dev),len(challenge),"fictional_development_only",flush=True)
-          def messages(cs,answer=False):
-              m=[{"role":"system","content":system},{"role":"user","content":source(cs)}]
-              if answer:m.append({"role":"assistant","content":json.dumps({"clauses":cs},ensure_ascii=False,separators=(",",":"))})
-              return m
-          def evaluate(net,tag,examples):
-              net.eval();net.config.use_cache=True
-              exact=valid=tp=fp=fn=span_tp=span_fp=span_fn=0;times=[]
-              fields={k:0 for k in ('role','state','modality')};risk_false_required=0
-              for i,gold in enumerate(examples):
-                  ids=tok.apply_chat_template(messages(gold),tokenize=True,add_generation_prompt=True,return_dict=True,return_tensors="pt")
-                  start=time.monotonic()
-                  with torch.inference_mode(): out=net.generate(**ids,max_new_tokens=240,do_sample=False)
-                  answer=tok.decode(out[0,ids["input_ids"].shape[-1]:],skip_special_tokens=True)
-                  times.append(time.monotonic()-start)
-                  pred=[]
-                  try:
-                      obj=json.loads(answer)
-                      if isinstance(obj,dict) and set(obj)=={"clauses"} and isinstance(obj["clauses"],list):
-                          pred=obj["clauses"];valid+=1
-                  except (ValueError,TypeError):pass
-                  # Exact evidence matched once, then score label errors conditional on evidence.
-                  unused=list(gold)
-                  for c in pred:
-                      if not isinstance(c,dict):continue
-                      match=next((g for g in unused if g["evidence"]==c.get("evidence")),None)
-                      if match:
-                          unused.remove(match);span_tp+=1
-                          for k in fields:fields[k]+=int(c.get(k)==match[k])
-                          risk_false_required+=int(match["state"] in ("conditional","negated","alternative","unknown") and c.get("state")=="required")
-                  span_fp+=len(pred)-(len(gold)-len(unused));span_fn+=len(unused)
-                  remain=list(gold);matched=0
-                  for c in pred:
-                      if c in remain:remain.remove(c);matched+=1
-                  tp+=matched;fp+=len(pred)-matched;fn+=len(remain);exact+=int(pred==gold)
-                  print("DEV",tag,i,json.dumps({"exact":pred==gold,"answer":answer},ensure_ascii=False),flush=True)
-              report={"stage":tag,"n":len(examples),"valid_json":valid,"exact_sessions":exact,"joint_tp":tp,"joint_fp":fp,"joint_fn":fn,"joint_f1":2*tp/max(1,2*tp+fp+fn),"mean_seconds":sum(times)/len(times),"span_tp":span_tp,"span_fp":span_fp,"span_fn":span_fn,"span_f1":2*span_tp/max(1,2*span_tp+span_fp+span_fn),"labels_correct_on_matched_spans":fields,"risk_false_required":risk_false_required}
-              print("METRICS",json.dumps(report),flush=True)
-              return report
-          before=evaluate(model,"before_original_dev",dev)
-          before_challenge=evaluate(model,"before_new_challenge",challenge)
-          model.config.use_cache=False
-          net=get_peft_model(model,LoraConfig(r=8,lora_alpha=16,lora_dropout=.05,target_modules="all-linear",task_type="CAUSAL_LM"))
-          params=[p for p in net.parameters() if p.requires_grad]
-          opt=torch.optim.AdamW(params,lr=1e-4)
-          encoded=[]
-          for cs in train:
-              r=tok.apply_chat_template(messages(cs,True),tokenize=True,return_dict=True,return_assistant_tokens_mask=True,add_generation_prompt=False)
-              ids=r["input_ids"];mask=r["assistant_masks"]
-              assert len(ids)==len(mask) and any(mask) and not all(mask) and len(ids)<=2048
-              encoded.append((torch.tensor([ids]),torch.tensor([[t if m else -100 for t,m in zip(ids,mask)]])))
-          for epoch in range(2):
-              net.train();random.shuffle(encoded);losses=[]
-              for x,y in encoded:
-                  opt.zero_grad();loss=net(input_ids=x,labels=y).loss
-                  assert torch.isfinite(loss)
-                  loss.backward();torch.nn.utils.clip_grad_norm_(params,1.0);opt.step()
-                  losses.append(float(loss.detach()))
-              print("EPOCH",json.dumps({"epoch":epoch+1,"mean_loss":sum(losses)/len(losses),"steps":len(losses)}),flush=True)
-          after=evaluate(net,"after_original_dev",dev)
-          after_challenge=evaluate(net,"after_new_challenge",challenge)
-          # Reproduce the contrastive candidate, retain only a sealed research checkpoint.
-          import pathlib, hashlib, shutil, gc
-          from peft import PeftModel
-          from huggingface_hub import hf_hub_download
-          root=pathlib.Path("/tmp/flm-checkpoint")
-          root.mkdir(mode=0o700)
-          adapter=root/"adapter"
-          net.eval()
-          sample=tok.apply_chat_template(messages(challenge[0]),tokenize=True,add_generation_prompt=True,return_dict=True,return_tensors="pt")
-          with torch.inference_mode(): expected=net(**sample).logits[:,-1,:].detach().clone()
-          nparams=sum(p.numel() for p in params)
-          net.save_pretrained(adapter,safe_serialization=True)
-          assert (adapter/"adapter_model.safetensors").is_file()
-          del params,opt,net,model
-          gc.collect()
-          base=AutoModelForCausalLM.from_pretrained(model_id,revision=revision,trust_remote_code=False,token=False,dtype=torch.float32,local_files_only=True)
-          restored=PeftModel.from_pretrained(base,adapter,is_trainable=False,local_files_only=True)
-          restored.eval()
-          with torch.inference_mode(): actual=restored(**sample).logits[:,-1,:]
-          torch.testing.assert_close(actual,expected,rtol=1e-5,atol=1e-4)
-          shutil.copyfile(hf_hub_download(model_id,"LICENSE",revision=revision,token=False),root/"LICENSE")
-          metrics={"before":before,"after":after,"before_challenge":before_challenge,"after_challenge":after_challenge}
-          digest=lambda x:hashlib.sha256(json.dumps(x,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
-          checks={str(p.relative_to(root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob("*") if p.is_file()}
-          manifest={"stage":"research_only","base_model":model_id,"base_revision":revision,"torch":torch.__version__,"transformers":transformers.__version__,"peft":peft.__version__,"seed":42,"epochs":2,"steps":2*len(train),"trainable_parameters":nparams,"train_sha256":digest(train),"dev_sha256":digest(dev),"challenge_sha256":digest(challenge),"prompt_sha256":digest(system),"reload_logits_verified":True,"files_sha256":checks,"metrics":metrics,"independent_validation":False,"production":False}
-          (root/"manifest.json").write_text(json.dumps(manifest,indent=2),encoding="utf8")
-          print("CHECKPOINT_RELOAD",json.dumps({"verified":True,"adapter_sha256":checks["adapter/adapter_model.safetensors"],"adapter_bytes":(adapter/"adapter_model.safetensors").stat().st_size}),flush=True)
-          print("FINAL",json.dumps({**metrics,"steps":2*len(train),"trainable_parameters":nparams,"production":False,"weights_saved_locally":True,"independent_validation":False}),flush=True)
-          PY
-      - name: Encrypt checkpoint before export
+      - name: Verify official public native snapshot and tensor dimensions
         run: |
           set -eu
-          umask 077
-          trap 'rm -rf /tmp/flm-checkpoint /tmp/flm-checkpoint.tar.gz /tmp/flm-recipient.pem' EXIT
-          cat > /tmp/flm-recipient.pem <<'CERT'
-          -----BEGIN CERTIFICATE-----
-          MIIETTCCArWgAwIBAgIULvZx1xoWSjf9RLIpPXhkG+lz6AkwDQYJKoZIhvcNAQEL
-          BQAwNjE0MDIGA1UEAwwrQXRobHlzIEZMTSBleHBlcmltZW50YWwgY2hlY2twb2lu
-          dCByZWNvdmVyeTAeFw0yNjExMjQxMjMzMDRaFw0zNjExMjExMjMzMDRaMDYxNDAy
-          BgNVBAMMK0F0aGx5cyBGTE0gZXhwZXJpbWVudGFsIGNoZWNrcG9pbnQgcmVjb3Zl
-          cnkwggGiMA0GCSqGSIb3DQEBAQUAA4IBjwAwggGKAoIBgQDwDqZ0nIvyHquI8cKq
-          pijk3Xo03Jo2NkQvtmR0Gg9BFygj1Kg3PP1oVlM1yT0OlZ9gVXXMruJ06/NA/aQB
-          gyz8NDpcdznyfRtblQrHhQ/fs27NVefPfS8LE0uxedMQtSoaeiJOWL23S1vagPIf
-          fwA5ahPu7DGZTkkwdrMwaqGJD6x2s++nmQHaZjek2/UsX1SlyYyIwSSudDOOSw3G
-          v8GteCOotaIk2UbyH77nkKPY+Ojiy9xDlJXZZOfUq2UzR/LSSrxT/kVHw+6p7Td7
-          Tg7zP1fuyMqV8E0zdZ8MRLhX34NRQH8ykEWJ3vE2gv7+Npv8Jz0ArLiZu4rk1aeY
-          CDwPeGZl9rlGYuUmXURFNPC6J6FJU43EMUTpK+c98id1qTTk2VjHjBZe44d927k7
-          SV0lPY32J22BylvGSACyjAE1nkQq048PhJaSizExY7Lln/bFgT5K/0MD67NCJvoP
-          OT33uQs1ghLKZNvPOiTdw1NIyyCnPlEctqMM1sjj5+B7068CAwEAAaNTMFEwHQYD
-          VR0OBBYEFPzwEuYFWP9eW3K2nCPpxOZaUAYlMB8GA1UdIwQYMBaAFPzwEuYFWP9e
-          W3K2nCPpxOZaUAYlMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggGB
-          AMuU7niD5ke3jh2X9w4TRT265sQaYu8SuodiAxlXqaCC6gQcDd5m0DDXAJCw7vy1
-          4WfZvmxFETUe9AqYmw1Z+FJdc8mKE1OvCFhXqswpN3Z77D1pKkVlkuYVoGA5Q/wj
-          OwBFeOnHSUjFKvzYrLj1RIriq0yjdaXCX6Px4fEvS+4Tan3SSpGseP/5WqklMiNI
-          yenySv6dOLauGpzlWPMWLzV122xvPz62E/iFhf6TG0YD4VtFndCcKdddWcd9RtwR
-          kYJrElQmSgIbVULXl1VX3uhhbZXi1xDVd7EUZssRH8CDjeETNo7G3JsWlqqeTVys
-          SCxHVd60ecvaKNQoMjlDE30NrSwMxEnRSh3QdHcRNzUpByet10Fh9dIrjcQmjCUM
-          tqFBC5ceWwMsCAtsJ0d7FwAJBrloRq6RBnunV32fPrCgYQWqeppLCf1/ihZY3Ovg
-          OTcLbDkTZVqu5+Nt50D5AePUDZ6vPPk8KoasllhRIFq2JEhAhZdDsPQP7uQtnOhg
-          Zw==
-          -----END CERTIFICATE-----
-          CERT
-          openssl x509 -in /tmp/flm-recipient.pem -noout -fingerprint -sha256 | grep -Fi 'C1:ED:3F:38:1F:85:16:A8:E2:65:06:74:E9:AE:BF:79:9E:59:B7:99:23:83:27:F1:5E:E8:95:44:FB:8E:B0:26'
-          tar -C /tmp/flm-checkpoint -czf /tmp/flm-checkpoint.tar.gz .
-          mkdir -p /tmp/flm-sealed
-          openssl cms -encrypt -binary -aes-256-gcm -in /tmp/flm-checkpoint.tar.gz -outform DER -out /tmp/flm-sealed/flm-research-checkpoint.cms /tmp/flm-recipient.pem
-          test -s /tmp/flm-sealed/flm-research-checkpoint.cms
-          sha256sum /tmp/flm-sealed/flm-research-checkpoint.cms
-      - name: Upload only encrypted experimental adapter
-        uses: actions/upload-artifact@v4
-        with:
-          name: flm-research-checkpoint-encrypted
-          path: /tmp/flm-sealed/flm-research-checkpoint.cms
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 0
+          python -m venv /tmp/flm-conversion
+          /tmp/flm-conversion/bin/pip install --index-url https://download.pytorch.org/whl/cpu 'torch==2.10.0'
+          /tmp/flm-conversion/bin/pip install 'transformers==5.1.0' safetensors huggingface_hub sentencepiece numpy protobuf
+          /tmp/flm-conversion/bin/python - <<'PY'
+          import json, hashlib, pathlib, shutil
+          from huggingface_hub import model_info, snapshot_download
+          from safetensors import safe_open
+          repo="LiquidAI/LFM2.5-350M"
+          rev="9921cd4d82c0e3986887aa4b376f9446729ef8a3"
+          names=["config.json","model.safetensors","tokenizer.json","tokenizer_config.json","chat_template.jinja","generation_config.json","LICENSE"]
+          info=model_info(repo,revision=rev,files_metadata=True,token=False)
+          assert info.sha==rev
+          snapshot=pathlib.Path(snapshot_download(repo,revision=rev,allow_patterns=names,token=False))
+          root=pathlib.Path("/tmp/public-native")
+          root.mkdir(mode=0o700)
+          hashes={}
+          for name in names:
+              p=root/name
+              shutil.copyfile(snapshot/name,p)
+              with p.open("rb") as f: hashes[name]=hashlib.file_digest(f,"sha256").hexdigest()
+              remote=next(x for x in info.siblings if x.rfilename==name)
+              if remote.lfs:
+                  assert hashes[name]==remote.lfs.sha256
+          assert (root/"model.safetensors").stat().st_size==708984464
+          cfg=json.loads((root/"config.json").read_text())
+          assert cfg["model_type"]=="lfm2"
+          with safe_open(root/"model.safetensors",framework="pt",device="cpu") as f:
+              shapes={k:list(f.get_slice(k).get_shape()) for k in f.keys()}
+          print("PUBLIC_BASE_HASHES",json.dumps({"repo":repo,"revision":rev,"files":hashes}),flush=True)
+          print("PUBLIC_BASE_SHAPES",json.dumps(shapes),flush=True)
+          PY
+      - name: Build official llama.cpp conversion tools
+        run: |
+          set -eu
+          git clone --depth 1 --branch b12669 https://github.com/ggml-org/llama.cpp.git /tmp/llama-cpp
+          cd /tmp/llama-cpp
+          echo "CONVERTER_REVISION $(git rev-parse HEAD)"
+          /tmp/flm-conversion/bin/pip install -e ./gguf-py
+          if [ -f requirements/requirements-convert_hf_to_gguf.txt ]; then
+            /tmp/flm-conversion/bin/pip install -r requirements/requirements-convert_hf_to_gguf.txt
+          fi
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF
+          cmake --build build --target llama-quantize llama-cli -j 2
+      - name: Convert unmodified public base and quantize
+        run: |
+          set -eu
+          cd /tmp/llama-cpp
+          export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+          /tmp/flm-conversion/bin/python convert_hf_to_gguf.py /tmp/public-native --outtype f16 --outfile /tmp/base-f16.gguf
+          build/bin/llama-quantize /tmp/base-f16.gguf /tmp/base-q4_0.gguf Q4_0
+          /tmp/flm-conversion/bin/python - <<'PY'
+          import hashlib, json, pathlib
+          result={}
+          for name in ["base-f16.gguf","base-q4_0.gguf"]:
+              p=pathlib.Path("/tmp")/name
+              with p.open("rb") as f: assert f.read(4)==b"GGUF"
+              with p.open("rb") as f: digest=hashlib.file_digest(f,"sha256").hexdigest()
+              result[name]={"sha256":digest,"size":p.stat().st_size}
+          print("PUBLIC_BASE_GGUF",json.dumps(result),flush=True)
+          PY
+          build/bin/llama-cli -m /tmp/base-q4_0.gguf -p 'Classify this fictional prescription: Jog for ten minutes.' -n 16 -t 2 --temp 0 --no-conversation </dev/null
+          echo 'PUBLIC_BASE_CONVERSION_PASS: unmodified base only; no private adapter; no uploaded model; no Android validation'
