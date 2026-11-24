@@ -1,0 +1,128 @@
+name: Athlys V12 research-safe Android and Web QA
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/athlys-v12-integrated-qa.yml'
+permissions:
+  contents: read
+jobs:
+  qa:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'build/athlys-v12-integrated-qa-20261124'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PRIVATE_SHA: 51ddca73950eb9a0f6a20217e9e88d4ff72b8fe6
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_BASE: 5975cf2c064ad95ad419748d336a6d90f94f8e70f3d4a02cb9177d5aadb5ae6d
+    steps:
+      - name: Checkout only distributable client files from pinned authorized source
+        uses: actions/checkout@v4
+        with:
+          repository: heat936/Athlys2
+          ref: 51ddca73950eb9a0f6a20217e9e88d4ff72b8fe6
+          token: ${{ secrets.ATHLYS_READ_TOKEN }}
+          persist-credentials: false
+          path: source
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /web/app.js
+            /web/athlys-rpe-semantic-ml.js
+            /web/athlys-local-intelligence.js
+            /web/sw.js
+            /native/android/light-lm.js
+            /native/android/light-lm-model.json
+            /scripts/build-light-lm-runtime.cjs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Verify pinned client and staging-only baseline
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$PRIVATE_SHA"
+          mkdir -p baseline output
+          gh release download athlys-v11-rpe-semantic-qa-20261123 --repo heat936/Athlys9 --pattern 'Athlys-V11-RPE-Language-QA.apk' --dir baseline
+          echo "$EXPECTED_BASE  baseline/Athlys-V11-RPE-Language-QA.apk" | sha256sum -c
+          unzip -t baseline/Athlys-V11-RPE-Language-QA.apk >/dev/null
+          unzip -p baseline/Athlys-V11-RPE-Language-QA.apk assets/public/app-config.js | grep -q 'avonfqgechvrnqxmbufn.supabase.co'
+          ! unzip -p baseline/Athlys-V11-RPE-Language-QA.apk assets/public/app-config.js | grep -q 'ixccwxonchzzjdjeajzw'
+          for p in source/web/*.js; do node --check "$p"; done
+          node - <<'JS'
+          const assert=require('node:assert/strict'), flm=require('./source/web/athlys-rpe-semantic-ml.js');
+          const x=flm.ABR.prepare({athleteId:'qa',sport:'athletics',asOf:'2026-11-25',predictionAt:'2026-11-24T12:00:00Z',sessionText:'2 x (3 x 200 m)'});
+          assert.equal(x.features.distance,1200);
+          assert.equal(flm.ABR.featureKeys.length,84);
+          assert.equal(flm.ABR.prepare({athleteId:'qa',sport:'athletics',asOf:'2026-11-25',predictionAt:'2026-11-24T12:00:00Z',sessionText:'Ne fais pas 5 x 200 m.'}).features.distance,null);
+          console.log('PASS client semantic boundary checks; no model activation');
+          JS
+      - name: Compile existing official local runtime with revised language adapter
+        working-directory: source
+        run: |
+          set -euo pipefail
+          printf '{"private":true,"dependencies":{"@wllama/wllama":"3.13.0","esbuild":"0.25.11"}}\n' > package.json
+          npm install --ignore-scripts --no-audit --no-fund
+          node scripts/build-light-lm-runtime.cjs
+          test -s web/athlys-light-lm-runtime/assistant.js
+          grep -q understandSession web/athlys-light-lm-runtime/assistant.js
+      - name: Package staging Android and portable Web without private research material
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile,ZIP_DEFLATED
+          import hashlib,json,re
+          base=Path("baseline/Athlys-V11-RPE-Language-QA.apk")
+          src=Path("source/web")
+          sw=src/"sw.js"
+          s=sw.read_text();s,n=re.subn(r'const CACHE_NAME = "[^"]+";', 'const CACHE_NAME = "athlys-shell-v48-integrated-qa";',s,count=1);assert n==1;sw.write_text(s)
+          names=["app.js","athlys-rpe-semantic-ml.js","athlys-local-intelligence.js","sw.js","athlys-light-lm-runtime/assistant.js","athlys-light-lm-runtime/wllama.wasm","athlys-light-lm-runtime/model.json","athlys-light-lm-runtime/wllama-LICENSE"]
+          for name in names: assert (src/name).is_file(),name
+          changed={"assets/public/"+name for name in names}
+          unsigned=Path("output/Athlys-V12-FLM-Quantum-QA-unsigned.apk")
+          with ZipFile(base) as b,ZipFile(unsigned,"w") as z:
+              assert len(b.namelist())==len(set(b.namelist()))
+              for info in b.infolist():
+                  if info.filename in changed or info.filename.startswith("META-INF/"):continue
+                  z.writestr(info,b.read(info.filename))
+              for name in names:z.write(src/name,"assets/public/"+name,compress_type=ZIP_DEFLATED)
+          with ZipFile(unsigned) as z, ZipFile(base) as b, ZipFile("output/Athlys-V12-Web-QA.zip","w",ZIP_DEFLATED) as web:
+              for name in names: assert z.read("assets/public/"+name)==(src/name).read_bytes()
+              assert z.read("assets/public/app-config.js")==b.read("assets/public/app-config.js")
+              assert not any(x.lower().endswith((".gguf",".safetensors")) for x in z.namelist())
+              assert not any("knowledge-base/v1" in x or "ml/research/" in x for x in z.namelist())
+              for name in z.namelist():
+                  if name.startswith("assets/public/") and not name.endswith("/"):
+                      relative=name[len("assets/public/"):]
+                      if relative not in ("cordova.js","cordova_plugins.js") and not relative.startswith("plugins/"):
+                          web.writestr(relative,z.read(name))
+              assert "app.html" in web.namelist()
+              assert "mobile.html" in web.namelist()
+          Path("output/QA-README.txt").write_text("Recette V12. Backend de staging uniquement. Web archive: servir par HTTPS ou localhost; pas de serveur distant ajoute. Modele de base existant, pas de poids specialises ni AKB non validee; objectifs scientifiques non atteints. APK reconditionnee depuis V11, signature QA distincte, pas une mise a jour compatible avec signature V11. Auth/RLS/synchronisation, Android physique et compatibilite Web a tester.\n")
+          print("PASS staging config unchanged, pinned client bytes, no private corpus or specialized weights")
+          PY
+      - name: Sign QA APK and verify archive integrity
+        run: |
+          set -euo pipefail
+          TOOLS="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          "$TOOLS/zipalign" -f -p 4 output/Athlys-V12-FLM-Quantum-QA-unsigned.apk output/Athlys-V12-FLM-Quantum-QA.apk
+          pass="$(openssl rand -hex 20)"
+          echo "::add-mask::$pass"
+          keytool -genkeypair -noprompt -alias athlys_v12_qa -keystore "$RUNNER_TEMP/qa.jks" -storepass "$pass" -keypass "$pass" -keyalg RSA -keysize 3072 -validity 365 -dname 'CN=Athlys V12 QA, O=Athlys, C=FR' >/dev/null 2>&1
+          "$TOOLS/apksigner" sign --ks "$RUNNER_TEMP/qa.jks" --ks-key-alias athlys_v12_qa --ks-pass "pass:$pass" --key-pass "pass:$pass" --v1-signing-enabled true --v2-signing-enabled true output/Athlys-V12-FLM-Quantum-QA.apk
+          "$TOOLS/apksigner" verify --verbose output/Athlys-V12-FLM-Quantum-QA.apk
+          "$TOOLS/zipalign" -c -p 4 output/Athlys-V12-FLM-Quantum-QA.apk
+          unzip -t output/Athlys-V12-FLM-Quantum-QA.apk >/dev/null
+          unzip -t output/Athlys-V12-Web-QA.zip >/dev/null
+          rm output/*unsigned.apk "$RUNNER_TEMP/qa.jks"
+          (cd output && sha256sum Athlys-V12-FLM-Quantum-QA.apk Athlys-V12-Web-QA.zip > SHA256SUMS.txt && cat SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: athlys-v12-android-web-qa
+          path: output/
+          retention-days: 1
+          if-no-files-found: error
+          compression-level: 0
