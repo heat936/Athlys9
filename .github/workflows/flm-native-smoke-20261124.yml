@@ -9,75 +9,126 @@ jobs:
   synthetic-native-test:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'research/flm-native-smoke-20261124'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       HF_HUB_DISABLE_TELEMETRY: '1'
       HF_HUB_DISABLE_IMPLICIT_TOKEN: '1'
       OMP_NUM_THREADS: '2'
       TOKENIZERS_PARALLELISM: 'false'
     steps:
-      - name: Install CPU dependencies
+      - name: Install verified CPU dependencies
         run: |
           python -m venv /tmp/flm-smoke
           /tmp/flm-smoke/bin/pip install --index-url https://download.pytorch.org/whl/cpu 'torch==2.10.0'
           /tmp/flm-smoke/bin/pip install 'transformers==5.1.0' 'peft==0.18.1' safetensors
-      - name: Execute actual inference and one synthetic LoRA update
+      - name: Compare native model before and after synthetic supervised LoRA
         run: |
           /tmp/flm-smoke/bin/python - <<'PY'
-          import json, time, torch, transformers, peft
+          import json, random, time, torch, transformers, peft
           from transformers import AutoTokenizer, AutoModelForCausalLM
           from peft import LoraConfig, get_peft_model
-          from huggingface_hub import model_info
-          torch.manual_seed(42)
-          torch.set_num_threads(2)
+          torch.manual_seed(42); random.seed(42); torch.set_num_threads(2)
           model_id="LiquidAI/LFM2.5-350M"
-          revision=model_info(model_id,token=False).sha
-          print("CHECKPOINT",revision, "VERSIONS",torch.__version__,transformers.__version__,peft.__version__,flush=True)
+          revision="9921cd4d82c0e3986887aa4b376f9446729ef8a3"
+          print("CHECKPOINT",revision,"VERSIONS",torch.__version__,transformers.__version__,peft.__version__,flush=True)
           tok=AutoTokenizer.from_pretrained(model_id,revision=revision,trust_remote_code=False,token=False)
           model=AutoModelForCausalLM.from_pretrained(model_id,revision=revision,trust_remote_code=False,token=False,dtype=torch.float32)
           assert model.config.model_type=="lfm2"
-          system="Classify each exact sentence as required or conditional or negated or reference. Return JSON only with keys evidence and state, in a list under clauses."
-          fixtures=[
-              ("Run four 200 metre repetitions.","required"),
-              ("If the track is wet, run indoors.","conditional"),
-              ("Ne fais pas de sprint maximal.","negated"),
-              ("Idem séance 2.","reference")]
-          model.eval()
-          exact=0
-          for source,gold in fixtures:
-              messages=[{"role":"system","content":system},{"role":"user","content":source}]
-              ids=tok.apply_chat_template(messages,tokenize=True,add_generation_prompt=True,return_dict=True,return_tensors="pt")
-              start=time.monotonic()
-              with torch.inference_mode():
-                  pred=model.generate(**ids,max_new_tokens=100,do_sample=False)
-              answer=tok.decode(pred[0,ids["input_ids"].shape[-1]:],skip_special_tokens=True)
-              try:
-                  clauses=json.loads(answer)["clauses"]
-                  ok=clauses==[{"evidence":source,"state":gold}]
-              except (ValueError,KeyError,TypeError):ok=False
-              exact+=int(ok)
-              print("INFERENCE",json.dumps({"fixture":source,"correct":ok,"seconds":round(time.monotonic()-start,3),"answer":answer},ensure_ascii=False),flush=True)
-          print("SYNTHETIC_BASELINE",exact,len(fixtures),flush=True)
-          # A different fictional sentence is used for one supervised update.
-          messages=[{"role":"system","content":system},{"role":"user","content":"Jog for ten minutes."},{"role":"assistant","content":json.dumps({"clauses":[{"evidence":"Jog for ten minutes.","state":"required"}]})}]
-          r=tok.apply_chat_template(messages,tokenize=True,return_dict=True,return_assistant_tokens_mask=True,add_generation_prompt=False)
-          ids=r["input_ids"]; mask=r["assistant_masks"]
-          assert len(ids)==len(mask) and any(mask) and not all(mask)
+          system="Analyse une prescription sportive FR/EN. Retourne uniquement JSON: {\"clauses\":[{\"evidence\":\"citation exacte\",\"role\":\"work|warmup|cooldown|recovery|goal|constraint|reference|context|unknown\",\"state\":\"required|conditional|alternative|negated|context|unknown\",\"modality\":\"speed|interval|endurance|strength|power|recovery|technical|unknown\"}]}. Chaque proposition distincte doit être citée exactement, dans son ordre. Choisis une seule valeur par champ. N'invente rien."
+          # Public, entirely fictional newly authored sentence families. No private corpus.
+          families=[
+            ("Trottine {n} minutes avant le travail.","warmup","required","endurance"),
+            ("Commence par {n} minutes de mobilité.","warmup","required","recovery"),
+            ("Effectue {n} répétitions de 300 m.","work","required","interval"),
+            ("Travaille {n} départs en starting-blocks.","work","required","speed"),
+            ("Fais {n} séries de squat.","work","required","strength"),
+            ("Réalise {n} séries de lancers.","work","required","power"),
+            ("Récupère {n} minutes entre les séries.","recovery","required","recovery"),
+            ("Retour au calme pendant {n} minutes.","cooldown","required","recovery"),
+            ("Si la piste est sèche, ajoute {n} sauts.","work","conditional","power"),
+            ("Ne dépasse pas {n} répétitions rapides.","constraint","negated","speed"),
+            ("Choisis {n} minutes de vélo ou de footing.","work","alternative","endurance"),
+            ("Idem séance {n}.","reference","unknown","unknown"),
+            ("Begin with {n} minutes of easy jogging.","warmup","required","endurance"),
+            ("Run {n} repetitions of 400 metres.","work","required","interval"),
+            ("Complete {n} sets of deadlifts.","work","required","strength"),
+            ("Rest for {n} minutes between sets.","recovery","required","recovery"),
+            ("Finish with {n} minutes of gentle mobility.","cooldown","required","recovery"),
+            ("If the runway is open, perform {n} jumps.","work","conditional","power"),
+            ("Do not exceed {n} maximal starts.","constraint","negated","speed"),
+            ("Choose {n} minutes of cycling or jogging.","work","alternative","endurance"),
+            ("Same as session {n}.","reference","unknown","unknown"),
+            ("Practise {n} baton exchanges.","work","required","technical"),
+          ]
+          def clause(t,r,s,m):return {"evidence":t,"role":r,"state":s,"modality":m}
+          train=[[clause(t.format(n=n),r,s,m)] for t,r,s,m in families for n in [3,6,10]]
+          # Compose training examples only from training families.
+          train += [train[i]+train[i+18] for i in range(0,18,3)]
+          train += [[clause("Le but est de stabiliser les appuis.","goal","context","technical")],
+                    [clause("The competition is tomorrow.","context","context","unknown")]]
+          dev=[
+            [clause("Prépare-toi par un quart d'heure de course facile.","warmup","required","endurance")],
+            [clause("Alterne les passages de haies à rythme régulier.","work","required","technical")],
+            [clause("Marche jusqu'au point de départ après chaque effort.","recovery","required","recovery")],
+            [clause("À défaut de sautoir, poursuis les éducatifs.","work","conditional","technical")],
+            [clause("Les essais maximaux sont à proscrire.","constraint","negated","power")],
+            [clause("Reprends le microcycle précédent.","reference","unknown","unknown")],
+            [clause("Ease into the session with relaxed running.","warmup","required","endurance")],
+            [clause("Walk back to the starting line after each effort.","recovery","required","recovery")],
+            [clause("Should the field close, practise footwork indoors.","work","conditional","technical")],
+            [clause("Maximum-speed work is off limits.","constraint","negated","speed")],
+            [clause("Finish by walking slowly.","cooldown","required","recovery"),clause("The race takes place on Sunday.","context","context","unknown")],
+            [clause("Le but est de fluidifier le passage des haies.","goal","context","technical"),clause("Les accélérations maximales sont interdites.","constraint","negated","speed")],
+          ]
+          def source(cs):return " ".join(c["evidence"] for c in cs)
+          assert not set(map(source,train)) & set(map(source,dev))
+          print("CORPUS",len(train),len(dev),"fictional_development_only",flush=True)
+          def messages(cs,answer=False):
+              m=[{"role":"system","content":system},{"role":"user","content":source(cs)}]
+              if answer:m.append({"role":"assistant","content":json.dumps({"clauses":cs},ensure_ascii=False,separators=(",",":"))})
+              return m
+          def evaluate(net,tag):
+              net.eval();net.config.use_cache=True
+              exact=valid=tp=fp=fn=0;times=[]
+              for i,gold in enumerate(dev):
+                  ids=tok.apply_chat_template(messages(gold),tokenize=True,add_generation_prompt=True,return_dict=True,return_tensors="pt")
+                  start=time.monotonic()
+                  with torch.inference_mode(): out=net.generate(**ids,max_new_tokens=240,do_sample=False)
+                  answer=tok.decode(out[0,ids["input_ids"].shape[-1]:],skip_special_tokens=True)
+                  times.append(time.monotonic()-start)
+                  pred=[]
+                  try:
+                      obj=json.loads(answer)
+                      if isinstance(obj,dict) and set(obj)=={"clauses"} and isinstance(obj["clauses"],list):
+                          pred=obj["clauses"];valid+=1
+                  except (ValueError,TypeError):pass
+                  remain=list(gold);matched=0
+                  for c in pred:
+                      if c in remain:remain.remove(c);matched+=1
+                  tp+=matched;fp+=len(pred)-matched;fn+=len(remain);exact+=int(pred==gold)
+                  print("DEV",tag,i,json.dumps({"exact":pred==gold,"answer":answer},ensure_ascii=False),flush=True)
+              report={"stage":tag,"n":len(dev),"valid_json":valid,"exact_sessions":exact,"joint_tp":tp,"joint_fp":fp,"joint_fn":fn,"joint_f1":2*tp/max(1,2*tp+fp+fn),"mean_seconds":sum(times)/len(times)}
+              print("METRICS",json.dumps(report),flush=True)
+              return report
+          before=evaluate(model,"before")
           model.config.use_cache=False
-          model=get_peft_model(model,LoraConfig(r=8,lora_alpha=16,lora_dropout=0.0,target_modules="all-linear",task_type="CAUSAL_LM"))
-          model.train()
-          params=[p for p in model.parameters() if p.requires_grad]
-          assert params
-          opt=torch.optim.AdamW(params,lr=5e-5)
-          x=torch.tensor([ids]);y=torch.tensor([[t if m else -100 for t,m in zip(ids,mask)]])
-          opt.zero_grad()
-          loss=model(input_ids=x,labels=y).loss
-          assert torch.isfinite(loss)
-          loss.backward()
-          grads=[(p,p.detach().clone()) for p in params if p.grad is not None and torch.count_nonzero(p.grad).item()>0]
-          assert grads
-          opt.step()
-          changed=any(not torch.equal(p.detach(),before) for p,before in grads)
-          assert changed
-          print("LORA_SMOKE",json.dumps({"loss":float(loss.detach()),"trainable_parameters":sum(p.numel() for p in params),"weights_changed":changed,"steps":1,"release":False}),flush=True)
+          net=get_peft_model(model,LoraConfig(r=8,lora_alpha=16,lora_dropout=.05,target_modules="all-linear",task_type="CAUSAL_LM"))
+          params=[p for p in net.parameters() if p.requires_grad]
+          opt=torch.optim.AdamW(params,lr=1e-4)
+          encoded=[]
+          for cs in train:
+              r=tok.apply_chat_template(messages(cs,True),tokenize=True,return_dict=True,return_assistant_tokens_mask=True,add_generation_prompt=False)
+              ids=r["input_ids"];mask=r["assistant_masks"]
+              assert len(ids)==len(mask) and any(mask) and not all(mask) and len(ids)<=2048
+              encoded.append((torch.tensor([ids]),torch.tensor([[t if m else -100 for t,m in zip(ids,mask)]])))
+          for epoch in range(3):
+              net.train();random.shuffle(encoded);losses=[]
+              for x,y in encoded:
+                  opt.zero_grad();loss=net(input_ids=x,labels=y).loss
+                  assert torch.isfinite(loss)
+                  loss.backward();torch.nn.utils.clip_grad_norm_(params,1.0);opt.step()
+                  losses.append(float(loss.detach()))
+              print("EPOCH",json.dumps({"epoch":epoch+1,"mean_loss":sum(losses)/len(losses),"steps":len(losses)}),flush=True)
+          after=evaluate(net,"after")
+          print("FINAL",json.dumps({"before":before,"after":after,"steps":3*len(train),"trainable_parameters":sum(p.numel() for p in params),"production":False,"weights_retained":False,"independent_validation":False}),flush=True)
           PY
