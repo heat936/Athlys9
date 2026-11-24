@@ -54,11 +54,23 @@ jobs:
           set -eu
           git clone --depth 1 --branch b12669 https://github.com/ggml-org/llama.cpp.git /tmp/llama-cpp
           cd /tmp/llama-cpp
+          test "$(git rev-parse HEAD)" = "30ec35ae2e27f1eca486af02b9d3d53fa7a26950"
           echo "CONVERTER_REVISION $(git rev-parse HEAD)"
           /tmp/flm-conversion/bin/pip install -e ./gguf-py
           if [ -f requirements/requirements-convert_hf_to_gguf.txt ]; then
             /tmp/flm-conversion/bin/pip install -r requirements/requirements-convert_hf_to_gguf.txt
           fi
+          # Legacy converter requirements downgrade Transformers; restore the
+          # native checkpoint's previously verified tokenizer-compatible version.
+          /tmp/flm-conversion/bin/pip install 'transformers==5.1.0' 'tokenizers==0.22.2'
+          /tmp/flm-conversion/bin/python - <<'PY'
+          import transformers
+          from transformers import AutoTokenizer
+          assert transformers.__version__=="5.1.0"
+          tokenizer=AutoTokenizer.from_pretrained("/tmp/public-native",local_files_only=True,trust_remote_code=False)
+          print("TOKENIZER_PREFLIGHT",type(tokenizer).__name__,len(tokenizer),flush=True)
+          assert len(tokenizer)==65536
+          PY
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF
           cmake --build build --target llama-quantize llama-cli -j 2
       - name: Convert unmodified public base and quantize
