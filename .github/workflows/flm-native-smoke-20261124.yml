@@ -1,0 +1,93 @@
+name: Public native language-model smoke
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/flm-native-smoke-20261124.yml'
+permissions: {}
+jobs:
+  tokenizer-parity:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'research/flm-native-smoke-20261124'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      HF_HUB_DISABLE_IMPLICIT_TOKEN: '1'
+      TOKENIZERS_PARALLELISM: 'false'
+    steps:
+      - name: Prepare pinned public tokenizer and converter
+        run: |
+          set -eu
+          python -m venv /tmp/flm-tok
+          /tmp/flm-tok/bin/pip install 'transformers==5.1.0' 'tokenizers==0.22.2' safetensors
+          git clone --depth 1 --branch b12669 https://github.com/ggml-org/llama.cpp.git /tmp/llama-cpp
+          cd /tmp/llama-cpp
+          test "$(git rev-parse HEAD)" = "30ec35ae2e27f1eca486af02b9d3d53fa7a26950"
+          /tmp/flm-tok/bin/pip install -e ./gguf-py
+          if [ -f requirements/requirements-convert_hf_to_gguf.txt ]; then
+            /tmp/flm-tok/bin/pip install -r requirements/requirements-convert_hf_to_gguf.txt
+          fi
+          /tmp/flm-tok/bin/pip install 'transformers==5.1.0' 'tokenizers==0.22.2'
+          /tmp/flm-tok/bin/python - <<'PY'
+          import hashlib, pathlib
+          from huggingface_hub import snapshot_download
+          p=pathlib.Path(snapshot_download("LiquidAI/LFM2.5-350M",revision="9921cd4d82c0e3986887aa4b376f9446729ef8a3",token=False,allow_patterns=["config.json","tokenizer.json","tokenizer_config.json","chat_template.jinja","generation_config.json","LICENSE"],local_dir="/tmp/flm-base"))
+          expected={"tokenizer.json":"df1d8d5ec5d091b460562ffd545e4a5e91d17d4a0db7ebe733be34ed374377bd","config.json":"720b43d6ddc2ed25be23eed355aefcf342434a176dedad23dbe0a5e3ac24bbb8","chat_template.jinja":"ba551d58630afa3190b1be3602e28301f3d2e9bbac978dfc49d6d825171648b6","tokenizer_config.json":"3701f370c70034d06e28947ff51c1063983393319f429e3ce58f06a45fae67cc"}
+          for name,digest in expected.items():
+              assert hashlib.sha256((p/name).read_bytes()).hexdigest()==digest,name
+          print("TOKENIZER_SOURCE_HASHES_PASS")
+          PY
+      - name: Convert vocabulary only and compile tokenizer utility
+        run: |
+          set -eu
+          cd /tmp/llama-cpp
+          if ! /tmp/flm-tok/bin/python convert_hf_to_gguf.py /tmp/flm-base --vocab-only --outfile /tmp/flm-vocab.gguf; then
+            /tmp/flm-tok/bin/python - <<'PY'
+          from huggingface_hub import snapshot_download
+          import hashlib,pathlib
+          p=pathlib.Path(snapshot_download("LiquidAI/LFM2.5-350M",revision="9921cd4d82c0e3986887aa4b376f9446729ef8a3",token=False,allow_patterns=["model.safetensors"],local_dir="/tmp/flm-base"))/"model.safetensors"
+          with p.open("rb") as f: assert hashlib.file_digest(f,"sha256").hexdigest()=="1c9c77a4471a7f590f85240f74ed1fc26df7fbde88c3006724e2f93ca993ea4e"
+          PY
+            /tmp/flm-tok/bin/python convert_hf_to_gguf.py /tmp/flm-base --vocab-only --outfile /tmp/flm-vocab.gguf
+          fi
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF
+          cmake --build build --target llama-tokenize -j 2
+          build/bin/llama-tokenize --help > /tmp/tokenize-help.txt 2>&1
+          grep -F -- '--ids' /tmp/tokenize-help.txt
+          grep -F -- '--no-bos' /tmp/tokenize-help.txt
+      - name: Compare exact native and GGUF token IDs on French and English text
+        run: |
+          set -eu
+          cd /tmp/llama-cpp
+          /tmp/flm-tok/bin/python - <<'PY'
+          import json, pathlib, subprocess, re, hashlib, unicodedata
+          from transformers import AutoTokenizer
+          tok=AutoTokenizer.from_pretrained("/tmp/flm-base",local_files_only=True,trust_remote_code=False)
+          system="Analyse une prescription sportive FR/EN. Retourne uniquement JSON: {\"clauses\":[{\"evidence\":\"citation exacte\",\"role\":\"work|warmup|cooldown|recovery|goal|constraint|reference|context|unknown\",\"state\":\"required|conditional|alternative|negated|context|unknown\",\"modality\":\"speed|interval|endurance|strength|power|recovery|technical|unknown\"}]}. Chaque proposition distincte doit être citée exactement, dans son ordre. Choisis une seule valeur par champ. N'invente rien."
+          cases=[("fr","Prépare-toi par un quart d'heure de course facile."),("fr","Alterne les passages de haies à rythme régulier."),("fr","À défaut de sautoir, poursuis les éducatifs."),("fr","3 × 4 × 200 m à 95 % VMA, récup’ 45 s."),("fr","Échauffement : 20 minutes, puis 5 × 300 m."),("fr",unicodedata.normalize("NFD","Échauffement : 20 minutes, puis 5 × 300 m.")),("en","Ease into the session with relaxed running."),("en","Walk back to the starting line after each effort."),("en","Maximum-speed work is off limits."),("en","Complete three sets of four 200 m repetitions."),("en","Rest 45 seconds between repetitions."),("en","Finish by walking slowly.")]
+          helptext=pathlib.Path("/tmp/tokenize-help.txt").read_text()
+          flags=["--ids","--no-bos"]
+          if "--no-escape" in helptext: flags.append("--no-escape")
+          if "--parse-special" in helptext: flags.append("--parse-special")
+          totals={}
+          def native(text):
+              return tok(text,add_special_tokens=False)["input_ids"]
+          for lang,text in cases:
+              messages=[{"role":"system","content":system},{"role":"user","content":text}]
+              prompt=tok.apply_chat_template(messages,tokenize=False,add_generation_prompt=True)
+              template_ids=tok.apply_chat_template(messages,tokenize=True,add_generation_prompt=True,return_dict=True)["input_ids"]
+              for kind,content,expected in [("plain",text,native(text)),("chat",prompt,template_ids)]:
+                  path=pathlib.Path("/tmp/flm-prompt.txt");path.write_bytes(content.encode("utf-8"))
+                  cmd=["build/bin/llama-tokenize","-m","/tmp/flm-vocab.gguf","-f",str(path),*flags]
+                  result=subprocess.run(cmd,capture_output=True,text=True,timeout=30,check=True)
+                  arrays=re.findall(r"\[\s*\d+(?:\s*,\s*\d+)*\s*\]",result.stdout)
+                  if len(arrays)!=1:raise RuntimeError("unexpected tokenizer stdout: "+result.stdout[:300])
+                  ids=json.loads(arrays[0])
+                  diff=next((i for i,(a,b) in enumerate(zip(expected,ids)) if a!=b),min(len(expected),len(ids)) if len(expected)!=len(ids) else None)
+                  info={"language":lang,"kind":kind,"utf8_sha256":hashlib.sha256(content.encode()).hexdigest(),"hf_n":len(expected),"gguf_n":len(ids),"equal":ids==expected,"first_difference":diff,"hf_window":expected[max(0,diff-3):diff+4] if diff is not None else [],"gguf_window":ids[max(0,diff-3):diff+4] if diff is not None else []}
+                  if kind=="chat": info["hf_rendered_roundtrip_equal"]=native(content)==expected
+                  print("TOKEN_PARITY_CASE",json.dumps(info),flush=True)
+                  k=lang+"/"+kind;g=totals.setdefault(k,{"n":0,"equal":0});g["n"]+=1;g["equal"]+=int(ids==expected)
+          print("TOKEN_PARITY_SUMMARY",json.dumps({"groups":totals,"flags":flags,"no_training":True,"no_weights_converted":True,"research_only":True}),flush=True)
+          assert all(v["n"]==v["equal"] for v in totals.values()),"native/GGUF token mismatch"
+          PY
